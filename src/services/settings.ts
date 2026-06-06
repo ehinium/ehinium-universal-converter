@@ -3,13 +3,39 @@ import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
 
+function mergeSettings(value: unknown): UserSettings {
+  if (typeof value !== "object" || value === null) {
+    return { ...defaultSettings };
+  }
+
+  const stored = value as Record<string, unknown>;
+
+  return {
+    targetCurrency:
+      typeof stored.targetCurrency === "string"
+        ? stored.targetCurrency
+        : defaultSettings.targetCurrency,
+    enabled:
+      typeof stored.enabled === "boolean"
+        ? stored.enabled
+        : defaultSettings.enabled,
+    whitelist: isStringArray(stored.whitelist)
+      ? stored.whitelist
+      : defaultSettings.whitelist,
+    blacklist: isStringArray(stored.blacklist)
+      ? stored.blacklist
+      : defaultSettings.blacklist,
+  };
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
 export async function getSettings(): Promise<UserSettings> {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
 
-  return {
-    ...defaultSettings,
-    ...(result[STORAGE_KEY] ?? {}),
-  };
+  return mergeSettings(result[STORAGE_KEY]);
 }
 
 export async function saveSettings(
@@ -18,4 +44,25 @@ export async function saveSettings(
   await chrome.storage.sync.set({
     [STORAGE_KEY]: settings,
   });
+}
+
+export function subscribeToSettingsChanges(
+  callback: (settings: UserSettings) => void
+): () => void {
+  const listener = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string
+  ): void => {
+    const settingsChange = changes[STORAGE_KEY];
+
+    if (areaName === "sync" && settingsChange) {
+      callback(mergeSettings(settingsChange.newValue));
+    }
+  };
+
+  chrome.storage.onChanged.addListener(listener);
+
+  return () => {
+    chrome.storage.onChanged.removeListener(listener);
+  };
 }

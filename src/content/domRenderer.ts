@@ -2,7 +2,7 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
-import { isProcessed, markProcessed } from "./processedNodes";
+import { isProcessed, markProcessed, resetProcessed } from "./processedNodes";
 
 export type RenderConversionOptions = {
   targetCurrency: string;
@@ -188,4 +188,21 @@ export function renderConversions(
   }
 
   return renderedCount;
+}
+
+export function resetRenderedConversions(root: ParentNode): void {
+  for (const span of root.querySelectorAll<HTMLElement>(
+    `[${CONVERTED_ATTRIBUTE}]`
+  )) {
+    span.remove();
+  }
+
+  const ownerDocument = root.ownerDocument ?? document;
+  const walker = ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+
+  while (node) {
+    resetProcessed(node as Text);
+    node = walker.nextNode();
+  }
 }
