@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Ehinium Universal Converter",
+  "description": "Automatically convert fiat currencies and units across websites.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Ehinium Universal Converter",
+    "default_popup": "index.html"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.frankfurter.app/*",
+    "https://cdn.jsdelivr.net/*"
+  ]
+}
