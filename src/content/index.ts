@@ -3,33 +3,57 @@ import { getExchangeRates } from "../services/rates";
 import { convertCurrency } from "../utils/currencyConverter";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
+import { observeDomChanges } from "./observer";
 
-async function run() {
-  console.log("Ehinium Universal Converter content script loaded.");
+let isProcessing = false;
 
-  const settings = await getSettings();
-
-  if (!settings.enabled) {
+async function runConversion(): Promise<void> {
+  if (isProcessing) {
     return;
   }
 
-  const textNodes = getTextNodes(document.body);
-  const ratesData = await getExchangeRates(settings.targetCurrency);
+  isProcessing = true;
 
-  const renderedCount = renderConversions(textNodes, {
-    targetCurrency: settings.targetCurrency,
-    convertAmount(match) {
-      return convertCurrency(
-        match.amount,
-        match.currency,
-        settings.targetCurrency,
-        ratesData.rates
-      );
-    },
-  });
+  try {
+    const settings = await getSettings();
 
-  console.log("Text nodes scanned:", textNodes.length);
-  console.log("Conversions rendered:", renderedCount);
+    if (!settings.enabled) {
+      return;
+    }
+
+    const textNodes = getTextNodes(document.body);
+    const ratesData = await getExchangeRates(settings.targetCurrency);
+
+    const renderedCount = renderConversions(textNodes, {
+      targetCurrency: settings.targetCurrency,
+      convertAmount(match) {
+        return convertCurrency(
+          match.amount,
+          match.currency,
+          settings.targetCurrency,
+          ratesData.rates
+        );
+      },
+    });
+
+    if (renderedCount > 0) {
+      console.log("[EUC] Conversions rendered:", renderedCount);
+    }
+  } finally {
+    isProcessing = false;
+  }
 }
 
-run();
+async function run(): Promise<void> {
+  console.log("[EUC] Content script loaded");
+
+  try {
+    await runConversion();
+  } finally {
+    observeDomChanges(() => {
+      void runConversion().catch(() => undefined);
+    });
+  }
+}
+
+void run().catch(() => undefined);
