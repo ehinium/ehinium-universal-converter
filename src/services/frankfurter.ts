@@ -32,7 +32,8 @@ export async function getFrankfurterRates(
 ): Promise<NormalizedRatesResponse> {
   const base = normalizeBaseCurrency(baseCurrency);
   const data = await fetchJson(
-    `${FRANKFURTER_RATES_URL}?base=${encodeURIComponent(base)}`,
+    `${FRANKFURTER_RATES_URL}?base=${encodeURIComponent(base)}`
+    ,
     "Frankfurter"
   );
 
