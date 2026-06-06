@@ -1,7 +1,8 @@
 import { getSettings } from "../services/settings";
-import { getRates } from "../services/frankfurter";
+import { getExchangeRates } from "../services/rates";
 import { convertCurrency } from "../utils/currencyConverter";
 import { parseCurrencies } from "../utils/currencyParser";
+import { getTextNodes } from "./domScanner";
 
 async function run() {
   console.log("Ehinium Universal Converter content script loaded.");
@@ -13,17 +14,20 @@ async function run() {
     return;
   }
 
-  const text = document.body.innerText;
-  const matches = parseCurrencies(text);
+  const textNodes = getTextNodes(document.body);
 
-  const ratesData = await getRates(settings.targetCurrency);
+  const matches = textNodes.flatMap((node) =>
+    parseCurrencies(node.textContent ?? "")
+  );
+
+  const normalizedRates = await getExchangeRates(settings.targetCurrency);
 
   const convertedMatches = matches.map((match) => {
     const convertedAmount = convertCurrency(
       match.amount,
       match.currency,
       settings.targetCurrency,
-      ratesData.rates
+      normalizedRates.rates
     );
 
     return {
@@ -33,6 +37,7 @@ async function run() {
     };
   });
 
+  console.log("Text nodes scanned:", textNodes.length);
   console.log("Currency matches:", convertedMatches);
 }
 

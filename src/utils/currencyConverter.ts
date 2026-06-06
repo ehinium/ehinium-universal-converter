@@ -1,4 +1,4 @@
-export type ExchangeRates = Record<string, number>;
+import type { ExchangeRates } from "../types/rates";
 
 export function convertCurrency(
   amount: number,
