@@ -2,6 +2,7 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
+import { isProcessed, markProcessed } from "./processedNodes";
 
 export type RenderConversionOptions = {
   targetCurrency: string;
@@ -17,7 +18,6 @@ type PositionedMatch = {
 const CONVERTED_ATTRIBUTE = "data-ehinium-converted";
 const EXCLUDED_SELECTOR =
   "script, style, noscript, textarea, input, select, option";
-const renderedTextNodes = new WeakSet<Text>();
 const wordCharacterPattern = /[\p{L}\p{N}_]/u;
 
 function formatAmount(amount: number, currency: string): string {
@@ -105,7 +105,7 @@ function shouldSkipNode(node: Text): boolean {
 
   return (
     !parent ||
-    renderedTextNodes.has(node) ||
+    isProcessed(node) ||
     parent.closest(EXCLUDED_SELECTOR) !== null ||
     parent.closest(`[${CONVERTED_ATTRIBUTE}]`) !== null
   );
@@ -121,7 +121,7 @@ function appendText(
   }
 
   const textNode = document.createTextNode(text);
-  renderedTextNodes.add(textNode);
+  markProcessed(textNode);
   fragment.append(textNode);
 }
 
@@ -139,12 +139,14 @@ export function renderConversions(
     const text = node.textContent;
 
     if (!text) {
+      markProcessed(node);
       continue;
     }
 
     const matches = positionMatches(text, parseCurrencies(text));
 
     if (matches.length === 0) {
+      markProcessed(node);
       continue;
     }
 
@@ -180,6 +182,7 @@ export function renderConversions(
     }
 
     appendText(fragment, document, text.slice(textOffset));
+    markProcessed(node);
     node.replaceWith(fragment);
     renderedCount += nodeRenderedCount;
   }
