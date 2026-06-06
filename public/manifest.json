@@ -9,7 +9,7 @@
   },
   "permissions": ["storage"],
   "host_permissions": [
-    "https://api.frankfurter.app/*",
+    "https://api.frankfurter.dev/*",
     "https://cdn.jsdelivr.net/*"
   ],
   "content_scripts": [

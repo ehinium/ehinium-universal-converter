@@ -1,9 +1,11 @@
-import { getRates } from "./frankfurter";
-
 async function run() {
-  const rates = await getRates("USD");
+  const response = await fetch("https://api.frankfurter.dev/v2/rates?base=USD");
 
-  console.log(rates);
+  console.log("status:", response.status);
+
+  const text = await response.text();
+
+  console.log(text);
 }
 
 run();

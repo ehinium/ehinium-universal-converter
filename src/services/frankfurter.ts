@@ -1,6 +1,6 @@
 export async function getRates(baseCurrency: string) {
   const response = await fetch(
-    `https://api.frankfurter.app/latest?from=${baseCurrency}`
+    `https://api.frankfurter.dev/v2/rates?base=${baseCurrency}`
   );
 
   if (!response.ok) {
