@@ -2,6 +2,11 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
+import {
+  EHINIUM_IGNORE_ATTRIBUTE,
+  isInsideExcludedContent,
+} from "./domExclusions";
+import { registerHoverTarget } from "./hoverRegistry";
 import { isProcessed, markProcessed, resetProcessed } from "./processedNodes";
 
 export type RenderConversionOptions = {
@@ -16,8 +21,9 @@ type PositionedMatch = {
 };
 
 const CONVERTED_ATTRIBUTE = "data-ehinium-converted";
-const EXCLUDED_SELECTOR =
-  "script, style, noscript, textarea, input, select, option";
+const BADGE_ATTRIBUTE = "data-ehinium-badge";
+const RAW_ATTRIBUTE = "data-ehinium-raw";
+const CURRENCY_ATTRIBUTE = "data-ehinium-currency";
 const wordCharacterPattern = /[\p{L}\p{N}_]/u;
 
 function formatAmount(amount: number, currency: string): string {
@@ -32,20 +38,82 @@ function formatAmount(amount: number, currency: string): string {
   }
 }
 
-function createConversionSpan(
+function createConversionBadge(
   document: Document,
+  match: CurrencyMatch,
   formattedAmount: string
 ): HTMLSpanElement {
-  const span = document.createElement("span");
+  const badge = document.createElement("span");
 
-  span.setAttribute(CONVERTED_ATTRIBUTE, "true");
-  span.style.opacity = "0.72";
-  span.style.marginInlineStart = "4px";
-  span.style.fontSize = "0.92em";
-  span.style.whiteSpace = "nowrap";
-  span.textContent = `(≈ ${formattedAmount})`;
+  badge.setAttribute(CONVERTED_ATTRIBUTE, "true");
+  badge.setAttribute(BADGE_ATTRIBUTE, "true");
+  badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
+  badge.setAttribute(RAW_ATTRIBUTE, match.raw);
+  badge.setAttribute(CURRENCY_ATTRIBUTE, match.currency);
+  badge.title = formattedAmount;
+  badge.style.display = "inline-flex";
+  badge.style.alignItems = "center";
+  badge.style.verticalAlign = "middle";
+  badge.style.marginInlineStart = "6px";
+  badge.style.padding = "2px 6px";
+  badge.style.borderRadius = "999px";
+  badge.style.background = "rgba(17, 24, 39, 0.08)";
+  badge.style.color = "rgb(17, 24, 39)";
+  badge.style.fontSize = "11px";
+  badge.style.fontWeight = "600";
+  badge.style.lineHeight = "1.4";
+  badge.style.whiteSpace = "nowrap";
+  badge.style.textDecoration = "none";
+  badge.style.pointerEvents = "auto";
+  badge.style.position = "relative";
+  badge.style.zIndex = "2147483647";
+  badge.textContent = `≈ ${formattedAmount}`;
+  registerHoverTarget(badge, formattedAmount);
 
-  return span;
+  return badge;
+}
+
+function getMatchFingerprint(match: CurrencyMatch): string {
+  return `${match.raw}\u0000${match.currency}`;
+}
+
+function getExistingBadgeCounts(parent: HTMLElement): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const badge of parent.querySelectorAll<HTMLElement>(
+    `[${BADGE_ATTRIBUTE}="true"]`
+  )) {
+    if (badge.parentElement !== parent) {
+      continue;
+    }
+
+    const raw = badge.getAttribute(RAW_ATTRIBUTE);
+    const currency = badge.getAttribute(CURRENCY_ATTRIBUTE);
+
+    if (raw === null || currency === null) {
+      continue;
+    }
+
+    const fingerprint = `${raw}\u0000${currency}`;
+    counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function consumeExistingBadge(
+  counts: Map<string, number>,
+  match: CurrencyMatch
+): boolean {
+  const fingerprint = getMatchFingerprint(match);
+  const count = counts.get(fingerprint) ?? 0;
+
+  if (count === 0) {
+    return false;
+  }
+
+  counts.set(fingerprint, count - 1);
+  return true;
 }
 
 function positionMatches(text: string, matches: CurrencyMatch[]): PositionedMatch[] {
@@ -106,8 +174,7 @@ function shouldSkipNode(node: Text): boolean {
   return (
     !parent ||
     isProcessed(node) ||
-    parent.closest(EXCLUDED_SELECTOR) !== null ||
-    parent.closest(`[${CONVERTED_ATTRIBUTE}]`) !== null
+    isInsideExcludedContent(parent)
   );
 }
 
@@ -130,6 +197,7 @@ export function renderConversions(
   options: RenderConversionOptions
 ): number {
   let renderedCount = 0;
+  const existingBadgesByParent = new WeakMap<HTMLElement, Map<string, number>>();
 
   for (const node of Array.from(textNodes)) {
     if (shouldSkipNode(node)) {
@@ -137,8 +205,9 @@ export function renderConversions(
     }
 
     const text = node.textContent;
+    const parent = node.parentElement;
 
-    if (!text) {
+    if (!text || !parent) {
       markProcessed(node);
       continue;
     }
@@ -152,10 +221,17 @@ export function renderConversions(
 
     const document = node.ownerDocument;
     const fragment = document.createDocumentFragment();
+    const existingBadgeCounts =
+      existingBadgesByParent.get(parent) ?? getExistingBadgeCounts(parent);
+    existingBadgesByParent.set(parent, existingBadgeCounts);
     let textOffset = 0;
     let nodeRenderedCount = 0;
 
     for (const positionedMatch of matches) {
+      if (consumeExistingBadge(existingBadgeCounts, positionedMatch.match)) {
+        continue;
+      }
+
       const convertedAmount = options.convertAmount(positionedMatch.match);
 
       if (convertedAmount === null || !Number.isFinite(convertedAmount)) {
@@ -168,8 +244,9 @@ export function renderConversions(
         text.slice(textOffset, positionedMatch.end)
       );
       fragment.append(
-        createConversionSpan(
+        createConversionBadge(
           document,
+          positionedMatch.match,
           formatAmount(convertedAmount, options.targetCurrency)
         )
       );
@@ -178,6 +255,7 @@ export function renderConversions(
     }
 
     if (nodeRenderedCount === 0) {
+      markProcessed(node);
       continue;
     }
 

@@ -41,12 +41,15 @@ const ambiguousSymbolDefaults = new Map<string, string>([
   ["£", "GBP"],
   ["¥", "JPY"],
 ]);
-const unsupportedAmbiguousSymbols = new Set(["R", "kr"]);
+const unsupportedAmbiguousSymbols = new Set(["R", "K", "F", "L", "P", "Q", "kr"]);
 
 const symbolToCurrency = new Map<string, string>();
 
 for (const [symbol, codes] of symbolCurrencies) {
-  if (unsupportedAmbiguousSymbols.has(symbol)) {
+  if (
+    unsupportedAmbiguousSymbols.has(symbol) ||
+    /^[A-Za-z]$/u.test(symbol)
+  ) {
     continue;
   }
 
@@ -64,9 +67,14 @@ for (const [symbol, codes] of symbolCurrencies) {
 
 const codePattern = createAlternation([...currencyByCode.keys()]);
 const symbolPattern = createAlternation([...symbolToCurrency.keys()]);
+const suffixSymbolPattern = createAlternation(
+  [...symbolToCurrency.keys()].filter((symbol) => /^\p{L}{2,}$/u.test(symbol))
+);
 
-const codeRegex = createCurrencyRegex(codePattern, "gu");
-const symbolRegex = createCurrencyRegex(symbolPattern, "gu");
+const codePrefixRegex = createPrefixRegex(codePattern, "gu");
+const codeSuffixRegex = createSuffixRegex(codePattern, "gu");
+const symbolPrefixRegex = createPrefixRegex(symbolPattern, "gu");
+const symbolSuffixRegex = createSuffixRegex(suffixSymbolPattern, "gu");
 
 function createAlternation(values: string[]): string {
   return values
@@ -79,12 +87,20 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function createCurrencyRegex(identifierPattern: string, flags: string): RegExp {
+function createPrefixRegex(identifierPattern: string, flags: string): RegExp {
   return new RegExp(
-    `(?<![\\p{L}\\p{N}_])` +
-      `(?:(${identifierPattern})${optionalSpacePattern}(${amountPattern})|` +
-      `(${amountPattern})${optionalSpacePattern}(${identifierPattern}))` +
-      `(?![\\p{L}\\p{N}_])`,
+    `(?<![\\p{L}\\p{N}_-])` +
+      `(${identifierPattern})${optionalSpacePattern}(${amountPattern})` +
+      `(?![\\p{L}\\p{N}_-]|[.,٫٬]${digitPattern})`,
+    flags
+  );
+}
+
+function createSuffixRegex(identifierPattern: string, flags: string): RegExp {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}_-])` +
+      `(${amountPattern})${optionalSpacePattern}(${identifierPattern})` +
+      `(?![\\p{L}\\p{N}_-])`,
     flags
   );
 }
@@ -135,13 +151,15 @@ function parseAmount(value: string, decimalDigits: number): number | null {
 function collectMatches(
   text: string,
   regex: RegExp,
+  identifierIndex: number,
+  amountIndex: number,
   resolveCurrency: (identifier: string) => string | undefined
 ): IndexedCurrencyMatch[] {
   const matches: IndexedCurrencyMatch[] = [];
 
   for (const match of text.matchAll(regex)) {
-    const identifier = match[1] ?? match[4];
-    const amountText = match[2] ?? match[3];
+    const identifier = match[identifierIndex];
+    const amountText = match[amountIndex];
     const currency = resolveCurrency(identifier);
     const definition = currency ? currencyByCode.get(currency) : undefined;
 
@@ -167,12 +185,18 @@ function collectMatches(
 }
 
 export function parseCurrencies(text: string): CurrencyMatch[] {
-  const codeMatches = collectMatches(text, codeRegex, (code) =>
-    currencyByCode.has(code.toUpperCase()) ? code.toUpperCase() : undefined
-  );
-  const symbolMatches = collectMatches(text, symbolRegex, (symbol) =>
-    symbolToCurrency.get(symbol)
-  );
+  const resolveCode = (code: string): string | undefined =>
+    currencyByCode.has(code) ? code : undefined;
+  const resolveSymbol = (symbol: string): string | undefined =>
+    symbolToCurrency.get(symbol);
+  const codeMatches = [
+    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode),
+    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode),
+  ];
+  const symbolMatches = [
+    ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol),
+    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSymbol),
+  ];
   const uniqueMatches = new Map<string, IndexedCurrencyMatch>();
 
   for (const match of [...codeMatches, ...symbolMatches]) {

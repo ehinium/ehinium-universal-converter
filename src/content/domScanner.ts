@@ -1,7 +1,10 @@
+import { isInsideExcludedContent } from "./domExclusions";
+
 export function getTextNodes(root: Node): Text[] {
   const textNodes: Text[] = [];
+  const ownerDocument = root.ownerDocument ?? document;
 
-  const walker = document.createTreeWalker(
+  const walker = ownerDocument.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT,
     {
@@ -12,15 +15,7 @@ export function getTextNodes(root: Node): Text[] {
           return NodeFilter.FILTER_REJECT;
         }
 
-        const excludedTags = [
-          "SCRIPT",
-          "STYLE",
-          "NOSCRIPT",
-          "TEXTAREA",
-          "INPUT",
-        ];
-
-        if (excludedTags.includes(parent.tagName)) {
+        if (isInsideExcludedContent(parent)) {
           return NodeFilter.FILTER_REJECT;
         }
 

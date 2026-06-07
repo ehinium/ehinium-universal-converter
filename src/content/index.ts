@@ -11,13 +11,16 @@ import {
   renderConversions,
   resetRenderedConversions,
 } from "./domRenderer";
+import { getHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
+import { hideTooltip, showTooltip } from "./tooltip";
 
 let currentSettings: UserSettings | null = null;
 let isProcessing = false;
 let conversionRequested = false;
 let settingsVersion = 0;
 let stopObserver: (() => void) | null = null;
+let hoverListenersRegistered = false;
 
 const hostname = window.location.hostname;
 
@@ -40,6 +43,37 @@ function startObserver(): void {
 function stopObserving(): void {
   stopObserver?.();
   stopObserver = null;
+}
+
+function registerHoverListeners(): void {
+  if (hoverListenersRegistered) {
+    return;
+  }
+
+  document.addEventListener("mousemove", (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      hideTooltip();
+      return;
+    }
+
+    const convertedElement = target.closest<HTMLElement>(
+      "[data-ehinium-converted]"
+    );
+    const hoverTarget = convertedElement
+      ? getHoverTarget(convertedElement)
+      : null;
+
+    if (hoverTarget) {
+      showTooltip(event.clientX, event.clientY, hoverTarget.content);
+    } else {
+      hideTooltip();
+    }
+  });
+
+  document.addEventListener("mouseleave", hideTooltip);
+  hoverListenersRegistered = true;
 }
 
 async function processConversions(): Promise<void> {
@@ -154,6 +188,7 @@ async function run(): Promise<void> {
     return;
   }
 
+  registerHoverListeners();
   conversionRequested = true;
 
   try {

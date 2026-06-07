@@ -1,6 +1,16 @@
+import { isInsideExcludedContent } from "./domExclusions";
+import { isProcessed } from "./processedNodes";
+
 const DEBOUNCE_DELAY_MS = 500;
 
 let stopActiveObserver: (() => void) | null = null;
+
+function isRelevantNode(node: Node): boolean {
+  return (
+    !isInsideExcludedContent(node) &&
+    !(node instanceof Text && isProcessed(node))
+  );
+}
 
 export function observeDomChanges(callback: () => void): () => void {
   stopActiveObserver?.();
@@ -8,8 +18,20 @@ export function observeDomChanges(callback: () => void): () => void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (stopped) {
+      return;
+    }
+
+    const hasRelevantMutation = mutations.some(
+      (mutation) =>
+        !isInsideExcludedContent(mutation.target) &&
+        [...mutation.addedNodes, ...mutation.removedNodes].some(
+          isRelevantNode
+        )
+    );
+
+    if (!hasRelevantMutation) {
       return;
     }
 
