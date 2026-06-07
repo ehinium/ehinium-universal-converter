@@ -41,6 +41,21 @@ const styles = {
     backgroundColor: "rgba(255, 255, 255, 0.88)",
     boxShadow: "0 10px 30px rgba(52, 72, 110, 0.09)",
   },
+  domainSection: {
+    display: "grid",
+    gap: "8px",
+  },
+  domainHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "12px",
+  },
+  count: {
+    color: "#6b7890",
+    fontSize: "11px",
+    fontWeight: 700,
+  },
   toggleRow: {
     display: "flex",
     alignItems: "center",
@@ -100,6 +115,19 @@ const styles = {
     font: "inherit",
     fontSize: "13px",
   },
+  textarea: {
+    width: "100%",
+    minHeight: "82px",
+    boxSizing: "border-box",
+    padding: "10px 11px",
+    resize: "vertical",
+    border: "1px solid #cdd6e6",
+    borderRadius: "9px",
+    outline: "none",
+    color: "#25324a",
+    backgroundColor: "#ffffff",
+    font: '12px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace',
+  },
   status: {
     minHeight: "18px",
     margin: "12px 2px 0",
@@ -125,11 +153,28 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
+function normalizeDomains(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((domain) => domain.trim())
+    .filter((domain) => domain.length > 0);
+}
+
+function domainsAreEqual(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((domain, index) => domain === right[index])
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [whitelistDraft, setWhitelistDraft] = useState("");
+  const [blacklistDraft, setBlacklistDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const settingsRef = useRef<UserSettings | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const sortedCurrencies = useMemo(
@@ -143,7 +188,10 @@ function App() {
     void getSettings()
       .then((loadedSettings) => {
         if (!cancelled) {
+          settingsRef.current = loadedSettings;
           setSettings(loadedSettings);
+          setWhitelistDraft(loadedSettings.whitelist.join("\n"));
+          setBlacklistDraft(loadedSettings.blacklist.join("\n"));
         }
       })
       .catch((loadError: unknown) => {
@@ -163,6 +211,7 @@ function App() {
   }, []);
 
   function persistSettings(nextSettings: UserSettings): void {
+    settingsRef.current = nextSettings;
     setSettings(nextSettings);
     setError(null);
     setIsSaving(true);
@@ -185,6 +234,29 @@ function App() {
           setIsSaving(false);
         }
       });
+  }
+
+  function updateDomains(
+    key: "whitelist" | "blacklist",
+    value: string
+  ): void {
+    if (key === "whitelist") {
+      setWhitelistDraft(value);
+    } else {
+      setBlacklistDraft(value);
+    }
+
+    const currentSettings = settingsRef.current;
+
+    if (!currentSettings) {
+      return;
+    }
+
+    const domains = normalizeDomains(value);
+
+    if (!domainsAreEqual(currentSettings[key], domains)) {
+      persistSettings({ ...currentSettings, [key]: domains });
+    }
   }
 
   if (isLoading) {
@@ -269,6 +341,49 @@ function App() {
               </option>
             ))}
           </select>
+        </label>
+      </section>
+
+      <section
+        style={{ ...styles.card, marginTop: "14px" }}
+        aria-label="Domain settings"
+      >
+        <label style={styles.domainSection}>
+          <span style={styles.domainHeader}>
+            <span style={styles.label}>
+              Whitelist Domains ({settings.whitelist.length})
+            </span>
+            <span style={styles.count}>One per line</span>
+          </span>
+          <textarea
+            value={whitelistDraft}
+            onChange={(event) => updateDomains("whitelist", event.target.value)}
+            placeholder={"amazon.com\nebay.co.uk\nbanggood.com"}
+            spellCheck={false}
+            style={styles.textarea}
+          />
+          <span style={styles.description}>
+            When populated, conversions run only on these domains.
+          </span>
+        </label>
+
+        <label style={styles.domainSection}>
+          <span style={styles.domainHeader}>
+            <span style={styles.label}>
+              Blacklist Domains ({settings.blacklist.length})
+            </span>
+            <span style={styles.count}>One per line</span>
+          </span>
+          <textarea
+            value={blacklistDraft}
+            onChange={(event) => updateDomains("blacklist", event.target.value)}
+            placeholder={"example.com"}
+            spellCheck={false}
+            style={styles.textarea}
+          />
+          <span style={styles.description}>
+            Conversions never run on these domains.
+          </span>
         </label>
       </section>
 

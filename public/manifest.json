@@ -7,15 +7,24 @@
     "default_title": "Ehinium Universal Converter",
     "default_popup": "index.html"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://api.frankfurter.dev/*",
     "https://cdn.jsdelivr.net/*"
   ],
   "content_scripts": [
-  {
-    "matches": ["<all_urls>"],
-    "js": ["assets/content.js"]
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "assets/content.js"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "assets/background.js"
   }
-  ]
 }

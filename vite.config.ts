@@ -7,24 +7,25 @@ export default defineConfig({
   plugins: [react()],
   build: isContentBuild
     ? {
-        emptyOutDir: false,
-        lib: {
-          entry: "src/content/index.ts",
-          formats: ["iife"],
-          name: "EhiniumUniversalConverterContent",
-          fileName: () => "assets/content.js",
-        },
-      }
+      emptyOutDir: false,
+      lib: {
+        entry: "src/content/index.ts",
+        formats: ["iife"],
+        name: "EhiniumUniversalConverterContent",
+        fileName: () => "assets/content.js",
+      },
+    }
     : {
-        rollupOptions: {
-          input: {
-            popup: "index.html",
-          },
-          output: {
-            entryFileNames: "assets/[name].js",
-            chunkFileNames: "assets/[name].js",
-            assetFileNames: "assets/[name].[ext]",
-          },
+      rollupOptions: {
+        input: {
+          popup: "index.html",
+          background: "src/background/index.ts",
+        },
+        output: {
+          entryFileNames: "assets/[name].js",
+          chunkFileNames: "assets/[name].js",
+          assetFileNames: "assets/[name].[ext]",
         },
       },
+    },
 });

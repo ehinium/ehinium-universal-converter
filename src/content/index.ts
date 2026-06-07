@@ -2,6 +2,7 @@ import {
   getSettings,
   subscribeToSettingsChanges,
 } from "../services/settings";
+import { isDomainAllowed } from "../services/domainRules";
 import { getExchangeRates } from "../services/rates";
 import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
@@ -16,6 +17,30 @@ let currentSettings: UserSettings | null = null;
 let isProcessing = false;
 let conversionRequested = false;
 let settingsVersion = 0;
+let stopObserver: (() => void) | null = null;
+
+const hostname = window.location.hostname;
+
+function domainIsAllowed(settings: UserSettings | null): boolean {
+  return settings !== null && isDomainAllowed(hostname, settings);
+}
+
+function startObserver(): void {
+  if (stopObserver || !domainIsAllowed(currentSettings)) {
+    return;
+  }
+
+  stopObserver = observeDomChanges(() => {
+    if (currentSettings?.enabled && domainIsAllowed(currentSettings)) {
+      requestConversion();
+    }
+  });
+}
+
+function stopObserving(): void {
+  stopObserver?.();
+  stopObserver = null;
+}
 
 async function processConversions(): Promise<void> {
   if (isProcessing) {
@@ -31,7 +56,7 @@ async function processConversions(): Promise<void> {
       const settings = currentSettings;
       const version = settingsVersion;
 
-      if (!settings?.enabled) {
+      if (!settings?.enabled || !domainIsAllowed(settings)) {
         continue;
       }
 
@@ -40,6 +65,7 @@ async function processConversions(): Promise<void> {
       if (
         version !== settingsVersion ||
         !currentSettings?.enabled ||
+        !domainIsAllowed(currentSettings) ||
         currentSettings.targetCurrency !== settings.targetCurrency
       ) {
         continue;
@@ -80,18 +106,37 @@ function handleSettingsChange(settings: UserSettings): void {
   const targetCurrencyChanged =
     previousSettings?.targetCurrency !== settings.targetCurrency;
   const enabledChanged = previousSettings?.enabled !== settings.enabled;
+  const wasDomainAllowed = domainIsAllowed(previousSettings);
+  const domainAllowed = isDomainAllowed(hostname, settings);
 
   currentSettings = settings;
 
-  if (!targetCurrencyChanged && !enabledChanged) {
+  if (
+    !targetCurrencyChanged &&
+    !enabledChanged &&
+    wasDomainAllowed === domainAllowed
+  ) {
     return;
   }
 
   settingsVersion++;
 
-  if (targetCurrencyChanged) {
+  if (!domainAllowed) {
+    conversionRequested = false;
+    stopObserving();
+
+    if (wasDomainAllowed) {
+      console.log("[EUC] Domain blocked:", hostname);
+    }
+
+    return;
+  }
+
+  if (targetCurrencyChanged || !wasDomainAllowed) {
     resetRenderedConversions(document);
   }
+
+  startObserver();
 
   if (settings.enabled) {
     requestConversion();
@@ -104,16 +149,17 @@ async function run(): Promise<void> {
   currentSettings = await getSettings();
   subscribeToSettingsChanges(handleSettingsChange);
 
+  if (!domainIsAllowed(currentSettings)) {
+    console.log("[EUC] Domain blocked:", hostname);
+    return;
+  }
+
   conversionRequested = true;
 
   try {
     await processConversions();
   } finally {
-    observeDomChanges(() => {
-      if (currentSettings?.enabled) {
-        requestConversion();
-      }
-    });
+    startObserver();
   }
 }
 
