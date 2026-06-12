@@ -292,7 +292,7 @@ function App() {
       <section style={styles.card} aria-label="Conversion settings">
         <div style={styles.toggleRow}>
           <div style={styles.labelGroup}>
-            <span style={styles.label}>Enabled</span>
+            <span style={styles.label}>Enable conversions</span>
             <p style={styles.description}>
               Show inline conversions on supported pages.
             </p>
@@ -302,7 +302,7 @@ function App() {
             type="button"
             role="switch"
             aria-checked={settings.enabled}
-            aria-label="Enable currency conversions"
+            aria-label="Enable conversions"
             onClick={() =>
               persistSettings({ ...settings, enabled: !settings.enabled })
             }

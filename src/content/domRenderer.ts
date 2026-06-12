@@ -3,6 +3,9 @@ import {
   type CurrencyMatch,
 } from "../utils/currencyParser";
 import type { ConverterMode } from "../types/settings";
+import { convertUnit, getDefaultTargetUnit } from "../utils/unitConverter";
+import { parseUnits } from "../utils/unitParser";
+import type { UnitCode, UnitMatch } from "../utils/unitTypes";
 import {
   badgeExists,
   createBadge,
@@ -12,6 +15,7 @@ import {
   removeBadges,
   serializeBadgeKey,
   type BadgeKey,
+  type UnitBadgeKey,
 } from "./badgeManager";
 import { debugLog } from "./debug";
 import { isInsideExcludedContent } from "./domExclusions";
@@ -19,6 +23,7 @@ import { detectGroupedPrices } from "./groupedPriceDetector";
 import { findPriceAnchor } from "./priceAnchor";
 
 export type RenderConversionOptions = {
+  enabled: boolean;
   targetCurrency: string;
   converterMode: ConverterMode;
   convertAmount: (match: CurrencyMatch) => number | null;
@@ -48,6 +53,18 @@ const UNSAFE_BADGE_PLACEMENT_SELECTOR = [
 const MAX_BADGE_VERTICAL_DISTANCE = 12;
 const PROMO_TEXT_PATTERN =
   /\b(?:savings?|discount|coupon|promo|redeem|credit\s+card|enter\s+code|max)\b/iu;
+const UNIT_EXCLUDED_SELECTOR = [
+  ".a-price",
+  "script",
+  "style",
+  "code",
+  "pre",
+  "input",
+  "textarea",
+  "[data-ehinium-badge]",
+  "[data-ehinium-converted]",
+  "[data-ehinium-ignore]",
+].join(", ");
 
 function formatAmount(amount: number, currency: string): string {
   try {
@@ -87,8 +104,52 @@ function priceScopeHasKey(node: Text, key: BadgeKey): boolean {
   );
 }
 
+function getUnitBadgeKey(
+  match: UnitMatch,
+  targetUnit: UnitCode,
+  convertedAmount: number
+): UnitBadgeKey {
+  return {
+    sourceUnit: match.unit,
+    targetUnit,
+    amount: match.amount,
+    convertedAmount,
+  };
+}
+
+function formatUnitAmount(amount: number, unit: UnitCode): string {
+  const formattedAmount = new Intl.NumberFormat(undefined, {
+    maximumSignificantDigits: 2,
+  }).format(amount);
+  const label = unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
+
+  return `${formattedAmount} ${label}`;
+}
+
+function normalizeDisplayText(value: string): string {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+}
+
 function isPromoTextNode(node: Text): boolean {
   return PROMO_TEXT_PATTERN.test(node.parentElement?.textContent ?? "");
+}
+
+function shouldSkipUnitNode(node: Text): boolean {
+  const parent = node.parentElement;
+
+  return (
+    !parent ||
+    isInsideExcludedContent(parent) ||
+    parent.closest(UNIT_EXCLUDED_SELECTOR) !== null
+  );
+}
+
+function isHighConfidenceUnitMatch(match: UnitMatch): boolean {
+  if (match.category !== "temperature") {
+    return true;
+  }
+
+  return /(?:°[cf]|celsius|fahrenheit)\s*$/iu.test(match.raw);
 }
 
 export function isSafeBadgePlacement(anchor: HTMLElement): boolean {
@@ -154,17 +215,102 @@ function insertTextBadgeIfNearby(
   return false;
 }
 
+function renderUnitConversions(textNodes: readonly Text[]): number {
+  let renderedCount = 0;
+
+  for (const node of textNodes) {
+    if (shouldSkipUnitNode(node)) {
+      continue;
+    }
+
+    const text = node.textContent;
+    const anchor = node.parentElement;
+
+    if (!text || !anchor || !isSafeBadgePlacement(anchor)) {
+      continue;
+    }
+
+    for (const match of parseUnits(text)) {
+      debugLog({
+        type: "match:unit",
+        sourceUnit: match.unit,
+        amount: match.amount,
+        text: match.raw,
+      });
+
+      if (!isHighConfidenceUnitMatch(match)) {
+        continue;
+      }
+
+      const targetUnit = getDefaultTargetUnit(match.unit);
+
+      if (!targetUnit) {
+        continue;
+      }
+
+      const convertedAmount = convertUnit(match.amount, match.unit, targetUnit);
+
+      if (
+        convertedAmount === null ||
+        !Number.isFinite(convertedAmount)
+      ) {
+        continue;
+      }
+
+      const formattedAmount = formatUnitAmount(convertedAmount, targetUnit);
+
+      if (normalizeDisplayText(formattedAmount) === normalizeDisplayText(match.raw)) {
+        continue;
+      }
+
+      const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmount);
+
+      if (badgeExists(anchor, badgeKey)) {
+        debugLog({
+          type: "skip:unit-duplicate",
+          sourceUnit: match.unit,
+          targetUnit,
+          amount: match.amount,
+          text: match.raw,
+        });
+        continue;
+      }
+
+      const badge = createBadge(formattedAmount, formattedAmount);
+
+      markBadge(badge, badgeKey);
+      if (!insertTextBadgeIfNearby(node, anchor, badge)) {
+        continue;
+      }
+
+      debugLog({
+        type: "render:unit-badge",
+        sourceUnit: match.unit,
+        targetUnit,
+        amount: match.amount,
+        formatted: formattedAmount,
+        text: match.raw,
+      });
+      renderedCount++;
+    }
+  }
+
+  return renderedCount;
+}
+
 export function renderConversions(
   textNodes: Iterable<Text>,
   options: RenderConversionOptions
 ): number {
-  if (options.converterMode === "units") {
+  if (!options.enabled) {
     return 0;
   }
 
+  const nodes = Array.from(textNodes);
   let renderedCount = 0;
 
-  for (const match of detectGroupedPrices(document)) {
+  if (options.converterMode !== "units") {
+    for (const match of detectGroupedPrices(document)) {
     const currencyMatch: CurrencyMatch = {
       raw: `${match.currency} ${match.amount}`,
       amount: match.amount,
@@ -258,10 +404,10 @@ export function renderConversions(
       formatted: formattedAmount,
       text: currencyMatch.raw,
     });
-    renderedCount++;
-  }
+      renderedCount++;
+    }
 
-  for (const node of Array.from(textNodes)) {
+    for (const node of nodes) {
     if (shouldSkipNode(node)) {
       continue;
     }
@@ -377,8 +523,13 @@ export function renderConversions(
         formatted: formattedAmount,
         text: match.raw,
       });
-      renderedCount++;
+        renderedCount++;
+      }
     }
+  }
+
+  if (options.converterMode !== "currencies") {
+    renderedCount += renderUnitConversions(nodes);
   }
 
   return renderedCount;

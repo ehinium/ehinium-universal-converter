@@ -2,13 +2,18 @@ export type DebugEvent = {
   type:
     | "match:text"
     | "match:grouped"
+    | "match:unit"
     | "skip:same-currency"
     | "skip:duplicate"
+    | "skip:unit-duplicate"
     | "skip:unsafe-placement"
     | "render:badge"
+    | "render:unit-badge"
     | "error";
   sourceCurrency?: string;
   targetCurrency?: string;
+  sourceUnit?: string;
+  targetUnit?: string;
   amount?: number;
   formatted?: string;
   reason?: string;

@@ -7,6 +7,15 @@ export type BadgeKey = {
   amount: number;
 };
 
+export type UnitBadgeKey = {
+  sourceUnit: string;
+  targetUnit: string;
+  amount: number;
+  convertedAmount: number;
+};
+
+type BadgeIdentity = BadgeKey | UnitBadgeKey;
+
 const BADGE_SELECTOR = '[data-ehinium-badge="true"]';
 const BADGE_KEY_ATTRIBUTE = "data-ehinium-key";
 const PRICE_KEY_ATTRIBUTE = "data-ehinium-price-key";
@@ -28,11 +37,19 @@ const PRICE_CONTAINER_SELECTOR = [
   ".price",
 ].join(", ");
 
-export function serializeBadgeKey(key: BadgeKey): string {
-  const normalizedAmount = key.amount
+function normalizeAmount(amount: number): string {
+  return amount
     .toFixed(6)
     .replace(/0+$/u, "")
     .replace(/\.$/u, "");
+}
+
+export function serializeBadgeKey(key: BadgeIdentity): string {
+  const normalizedAmount = normalizeAmount(key.amount);
+
+  if ("sourceUnit" in key) {
+    return `unit|${normalizedAmount}|${key.sourceUnit}|${key.targetUnit}|${normalizeAmount(key.convertedAmount)}`;
+  }
 
   return `${normalizedAmount}|${key.sourceCurrency}|${key.targetCurrency}`;
 }
@@ -158,7 +175,7 @@ export function getPriceContainer(anchor: HTMLElement): HTMLElement {
   );
 }
 
-export function badgeExists(anchor: HTMLElement, key: BadgeKey): boolean {
+export function badgeExists(anchor: HTMLElement, key: BadgeIdentity): boolean {
   const serializedKey = serializeBadgeKey(key);
   const priceContainer = getPriceContainer(anchor);
 
@@ -175,7 +192,7 @@ export function badgeExists(anchor: HTMLElement, key: BadgeKey): boolean {
   return false;
 }
 
-export function markBadge(badge: HTMLElement, key: BadgeKey): void {
+export function markBadge(badge: HTMLElement, key: BadgeIdentity): void {
   badge.setAttribute("data-ehinium-badge", "true");
   badge.setAttribute("data-ehinium-converted", "true");
   badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");

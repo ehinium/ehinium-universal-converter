@@ -74,7 +74,11 @@ function domainIsAllowed(settings: UserSettings | null): boolean {
 }
 
 function startObserver(): void {
-  if (stopObserver || !domainIsAllowed(currentSettings)) {
+  if (
+    stopObserver ||
+    !currentSettings?.enabled ||
+    !domainIsAllowed(currentSettings)
+  ) {
     return;
   }
 
@@ -140,6 +144,17 @@ async function processConversions(): Promise<void> {
       }
 
       if (settings.converterMode === "units") {
+        const renderedCount = renderConversions(getTextNodes(document.body), {
+          enabled: settings.enabled,
+          targetCurrency: settings.targetCurrency,
+          converterMode: settings.converterMode,
+          convertAmount: () => null,
+        });
+
+        if (renderedCount > 0) {
+          console.log("[EUC] Conversions rendered:", renderedCount);
+        }
+
         continue;
       }
 
@@ -156,6 +171,7 @@ async function processConversions(): Promise<void> {
       }
 
       const renderedCount = renderConversions(getTextNodes(document.body), {
+        enabled: settings.enabled,
         targetCurrency: settings.targetCurrency,
         converterMode: settings.converterMode,
         convertAmount(match) {
@@ -209,6 +225,13 @@ function handleSettingsChange(settings: UserSettings): void {
 
   settingsVersion++;
 
+  if (!settings.enabled) {
+    conversionRequested = false;
+    stopObserving();
+    resetRenderedConversions(document);
+    return;
+  }
+
   if (!domainAllowed) {
     conversionRequested = false;
     stopObserving();
@@ -225,10 +248,7 @@ function handleSettingsChange(settings: UserSettings): void {
   }
 
   startObserver();
-
-  if (settings.enabled) {
-    requestConversion();
-  }
+  requestConversion();
 }
 
 async function run(): Promise<void> {
