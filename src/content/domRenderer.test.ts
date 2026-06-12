@@ -1,4 +1,5 @@
 import { Window } from "happy-dom";
+import type { ConverterMode } from "../types/settings";
 import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
@@ -54,10 +55,12 @@ function createRoot(html: string): HTMLElement {
 function render(
   root: HTMLElement,
   targetCurrency: string,
-  convertAmount: (match: CurrencyMatch) => number | null
+  convertAmount: (match: CurrencyMatch) => number | null,
+  converterMode: ConverterMode = "currencies"
 ): number {
   return renderConversions(getTextNodes(root), {
     targetCurrency,
+    converterMode,
     convertAmount,
   });
 }
@@ -93,6 +96,7 @@ function render(
 
   renderConversions([textNode], {
     targetCurrency: "USD",
+    converterMode: "currencies",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -100,6 +104,7 @@ function render(
 
   renderConversions([textNode], {
     targetCurrency: "USD",
+    converterMode: "currencies",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -128,4 +133,35 @@ function render(
 
   expectEqual(rendered, 1, "Amazon grouped rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "Amazon grouped badges");
+}
+
+{
+  const root = createRoot("<span>€100</span>");
+  let conversionCalls = 0;
+  const rendered = render(
+    root,
+    "USD",
+    () => {
+      conversionCalls++;
+      return 110;
+    },
+    "units"
+  );
+
+  expectEqual(rendered, 0, "units mode rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "units mode badges");
+  expectEqual(conversionCalls, 0, "units mode converter calls");
+}
+
+{
+  const root = createRoot("<span>€100</span>");
+  const rendered = render(
+    root,
+    "USD",
+    (match) => match.amount * 1.1,
+    "everything"
+  );
+
+  expectEqual(rendered, 1, "everything mode rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "everything mode badges");
 }

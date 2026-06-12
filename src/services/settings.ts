@@ -1,4 +1,4 @@
-import type { UserSettings } from "../types/settings";
+import type { ConverterMode, UserSettings } from "../types/settings";
 import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
@@ -19,6 +19,9 @@ function mergeSettings(value: unknown): UserSettings {
       typeof stored.enabled === "boolean"
         ? stored.enabled
         : defaultSettings.enabled,
+    converterMode: isConverterMode(stored.converterMode)
+      ? stored.converterMode
+      : defaultSettings.converterMode,
     whitelist: isStringArray(stored.whitelist)
       ? stored.whitelist
       : defaultSettings.whitelist,
@@ -26,6 +29,10 @@ function mergeSettings(value: unknown): UserSettings {
       ? stored.blacklist
       : defaultSettings.blacklist,
   };
+}
+
+function isConverterMode(value: unknown): value is ConverterMode {
+  return value === "currencies" || value === "units" || value === "everything";
 }
 
 function isStringArray(value: unknown): value is string[] {

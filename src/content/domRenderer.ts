@@ -2,6 +2,7 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
+import type { ConverterMode } from "../types/settings";
 import {
   badgeExists,
   createBadge,
@@ -19,6 +20,7 @@ import { findPriceAnchor } from "./priceAnchor";
 
 export type RenderConversionOptions = {
   targetCurrency: string;
+  converterMode: ConverterMode;
   convertAmount: (match: CurrencyMatch) => number | null;
 };
 
@@ -156,6 +158,10 @@ export function renderConversions(
   textNodes: Iterable<Text>,
   options: RenderConversionOptions
 ): number {
+  if (options.converterMode === "units") {
+    return 0;
+  }
+
   let renderedCount = 0;
 
   for (const match of detectGroupedPrices(document)) {

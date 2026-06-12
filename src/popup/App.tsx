@@ -324,6 +324,24 @@ function App() {
         </div>
 
         <label style={styles.field}>
+          <span style={styles.label}>Conversion mode</span>
+          <select
+            value={settings.converterMode}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                converterMode: event.target.value as UserSettings["converterMode"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="currencies">Currencies only</option>
+            <option value="units">Units only</option>
+            <option value="everything">Everything</option>
+          </select>
+        </label>
+
+        <label style={styles.field}>
           <span style={styles.label}>Target currency</span>
           <select
             value={settings.targetCurrency}

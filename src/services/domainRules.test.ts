@@ -4,6 +4,7 @@ import { isDomainAllowed } from "./domainRules";
 const baseSettings: UserSettings = {
   targetCurrency: "EUR",
   enabled: true,
+  converterMode: "currencies",
   whitelist: [],
   blacklist: [],
 };

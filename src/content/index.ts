@@ -139,19 +139,25 @@ async function processConversions(): Promise<void> {
         continue;
       }
 
+      if (settings.converterMode === "units") {
+        continue;
+      }
+
       const ratesData = await getExchangeRates(settings.targetCurrency);
 
       if (
         version !== settingsVersion ||
         !currentSettings?.enabled ||
         !domainIsAllowed(currentSettings) ||
-        currentSettings.targetCurrency !== settings.targetCurrency
+        currentSettings.targetCurrency !== settings.targetCurrency ||
+        currentSettings.converterMode !== settings.converterMode
       ) {
         continue;
       }
 
       const renderedCount = renderConversions(getTextNodes(document.body), {
         targetCurrency: settings.targetCurrency,
+        converterMode: settings.converterMode,
         convertAmount(match) {
           return convertCurrency(
             match.amount,
@@ -185,6 +191,8 @@ function handleSettingsChange(settings: UserSettings): void {
   const targetCurrencyChanged =
     previousSettings?.targetCurrency !== settings.targetCurrency;
   const enabledChanged = previousSettings?.enabled !== settings.enabled;
+  const converterModeChanged =
+    previousSettings?.converterMode !== settings.converterMode;
   const wasDomainAllowed = domainIsAllowed(previousSettings);
   const domainAllowed = isDomainAllowed(hostname, settings);
 
@@ -193,6 +201,7 @@ function handleSettingsChange(settings: UserSettings): void {
   if (
     !targetCurrencyChanged &&
     !enabledChanged &&
+    !converterModeChanged &&
     wasDomainAllowed === domainAllowed
   ) {
     return;
@@ -211,7 +220,7 @@ function handleSettingsChange(settings: UserSettings): void {
     return;
   }
 
-  if (targetCurrencyChanged || !wasDomainAllowed) {
+  if (targetCurrencyChanged || converterModeChanged || !wasDomainAllowed) {
     resetRenderedConversions(document);
   }
 
