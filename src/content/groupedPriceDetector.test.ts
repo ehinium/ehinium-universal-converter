@@ -1,4 +1,12 @@
+import { Window } from "happy-dom";
 import { detectGroupedPrices } from "./groupedPriceDetector";
+
+const window = new Window();
+
+Object.assign(globalThis, {
+  document: window.document,
+  Element: window.Element,
+});
 
 const root = document.createElement("div");
 
@@ -27,9 +35,14 @@ root.innerHTML = `
 `;
 
 const matches = detectGroupedPrices(root);
+const actual = matches.map(({ amount, currency }) => ({ amount, currency }));
+const expected = [
+  { amount: 164.17, currency: "USD" },
+  { amount: 99.5, currency: "GBP" },
+];
 
-console.log(matches.map((match) => ({
-  amount: match.amount,
-  currency: match.currency,
-  anchorClass: match.anchor.className,
-})));
+if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  throw new Error(
+    `Expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`
+  );
+}

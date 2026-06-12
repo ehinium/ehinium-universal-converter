@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && cross-env BUILD_TARGET=content vite build",
+    "test": "npm run test:unit",
+    "test:unit": "tsx src/utils/currencyParser.test.ts && tsx src/utils/currencyConverter.test.ts && tsx src/services/settings.test.ts && tsx src/services/domainRules.test.ts && tsx src/content/domScanner.test.ts && tsx src/content/groupedPriceDetector.test.ts",
+    "test:rates": "tsx src/services/rates.test.ts",
+    "check": "npm run test:unit && npm run build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -25,6 +29,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "happy-dom": "^20.10.3",
+    "tsx": "^4.22.4",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
