@@ -12,6 +12,7 @@ import {
   serializeBadgeKey,
   type BadgeKey,
 } from "./badgeManager";
+import { debugLog } from "./debug";
 import { isInsideExcludedContent } from "./domExclusions";
 import { detectGroupedPrices } from "./groupedPriceDetector";
 import { findPriceAnchor } from "./priceAnchor";
@@ -164,23 +165,62 @@ export function renderConversions(
       currency: match.currency,
     };
 
+    debugLog({
+      type: "match:grouped",
+      sourceCurrency: currencyMatch.currency,
+      targetCurrency: options.targetCurrency,
+      amount: currencyMatch.amount,
+      text: currencyMatch.raw,
+    });
+
     if (currencyMatch.currency === options.targetCurrency) {
+      debugLog({
+        type: "skip:same-currency",
+        sourceCurrency: currencyMatch.currency,
+        targetCurrency: options.targetCurrency,
+        amount: currencyMatch.amount,
+        text: currencyMatch.raw,
+      });
       continue;
     }
 
     const badgeKey = getBadgeKey(currencyMatch, options.targetCurrency);
 
     if (badgeExists(match.anchor, badgeKey)) {
+      debugLog({
+        type: "skip:duplicate",
+        sourceCurrency: currencyMatch.currency,
+        targetCurrency: options.targetCurrency,
+        amount: currencyMatch.amount,
+        text: currencyMatch.raw,
+        reason: "Grouped price badge already exists",
+      });
       continue;
     }
 
     if (!isSafeBadgePlacement(match.anchor)) {
+      debugLog({
+        type: "skip:unsafe-placement",
+        sourceCurrency: currencyMatch.currency,
+        targetCurrency: options.targetCurrency,
+        amount: currencyMatch.amount,
+        text: currencyMatch.raw,
+        reason: "Grouped price anchor is not safe for badge placement",
+      });
       continue;
     }
 
     const convertedAmount = options.convertAmount(currencyMatch);
 
     if (convertedAmount === null || !Number.isFinite(convertedAmount)) {
+      debugLog({
+        type: "error",
+        sourceCurrency: currencyMatch.currency,
+        targetCurrency: options.targetCurrency,
+        amount: currencyMatch.amount,
+        text: currencyMatch.raw,
+        reason: "Grouped price conversion returned an invalid amount",
+      });
       continue;
     }
 
@@ -192,9 +232,26 @@ export function renderConversions(
 
     markBadge(badge, badgeKey);
     if (!insertGroupedBadgeIfNearby(match.anchor, badge)) {
+      debugLog({
+        type: "skip:unsafe-placement",
+        sourceCurrency: currencyMatch.currency,
+        targetCurrency: options.targetCurrency,
+        amount: currencyMatch.amount,
+        formatted: formattedAmount,
+        text: currencyMatch.raw,
+        reason: "Grouped price badge was too far from its anchor",
+      });
       continue;
     }
 
+    debugLog({
+      type: "render:badge",
+      sourceCurrency: currencyMatch.currency,
+      targetCurrency: options.targetCurrency,
+      amount: currencyMatch.amount,
+      formatted: formattedAmount,
+      text: currencyMatch.raw,
+    });
     renderedCount++;
   }
 
@@ -206,7 +263,17 @@ export function renderConversions(
     const text = node.textContent;
     const anchor = findPriceAnchor(node);
 
-    if (!text || !anchor || isPromoTextNode(node)) {
+    if (!text || !anchor) {
+      continue;
+    }
+
+    if (isPromoTextNode(node)) {
+      debugLog({
+        type: "skip:unsafe-placement",
+        targetCurrency: options.targetCurrency,
+        text: text.slice(0, 500),
+        reason: "Text is inside promotional content",
+      });
       continue;
     }
 
@@ -217,23 +284,62 @@ export function renderConversions(
     }
 
     for (const match of matches) {
+      debugLog({
+        type: "match:text",
+        sourceCurrency: match.currency,
+        targetCurrency: options.targetCurrency,
+        amount: match.amount,
+        text: match.raw,
+      });
+
       if (match.currency === options.targetCurrency) {
+        debugLog({
+          type: "skip:same-currency",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+        });
         continue;
       }
 
       const badgeKey = getBadgeKey(match, options.targetCurrency);
 
       if (priceScopeHasKey(node, badgeKey) || badgeExists(anchor, badgeKey)) {
+        debugLog({
+          type: "skip:duplicate",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: "Text price badge already exists",
+        });
         continue;
       }
 
       if (!isSafeBadgePlacement(anchor)) {
+        debugLog({
+          type: "skip:unsafe-placement",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: "Text price anchor is not safe for badge placement",
+        });
         continue;
       }
 
       const convertedAmount = options.convertAmount(match);
 
       if (convertedAmount === null || !Number.isFinite(convertedAmount)) {
+        debugLog({
+          type: "error",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: "Text price conversion returned an invalid amount",
+        });
         continue;
       }
 
@@ -245,9 +351,26 @@ export function renderConversions(
 
       markBadge(badge, badgeKey);
       if (!insertTextBadgeIfNearby(node, anchor, badge)) {
+        debugLog({
+          type: "skip:unsafe-placement",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          formatted: formattedAmount,
+          text: match.raw,
+          reason: "Text price badge was too far from its anchor",
+        });
         continue;
       }
 
+      debugLog({
+        type: "render:badge",
+        sourceCurrency: match.currency,
+        targetCurrency: options.targetCurrency,
+        amount: match.amount,
+        formatted: formattedAmount,
+        text: match.raw,
+      });
       renderedCount++;
     }
   }

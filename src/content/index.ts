@@ -6,6 +6,13 @@ import { isDomainAllowed } from "../services/domainRules";
 import { getExchangeRates } from "../services/rates";
 import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
+import {
+  clearDebugEvents,
+  debugLog,
+  getDebugEvents,
+  isDebugEnabled,
+  type DebugEvent,
+} from "./debug";
 import { getTextNodes } from "./domScanner";
 import {
   renderConversions,
@@ -15,6 +22,15 @@ import { getHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
 import { hideTooltip, showTooltip } from "./tooltip";
 
+declare global {
+  interface Window {
+    __EUC_DEBUG__?: {
+      getEvents: () => DebugEvent[];
+      clear: () => void;
+    };
+  }
+}
+
 let currentSettings: UserSettings | null = null;
 let isProcessing = false;
 let conversionRequested = false;
@@ -23,6 +39,35 @@ let stopObserver: (() => void) | null = null;
 let hoverListenersRegistered = false;
 
 const hostname = window.location.hostname;
+
+function getErrorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logDebugError(error: unknown): void {
+  debugLog({
+    type: "error",
+    reason: getErrorReason(error),
+  });
+}
+
+function exposeDebugHelper(): void {
+  if (!isDebugEnabled()) {
+    return;
+  }
+
+  try {
+    Object.defineProperty(window, "__EUC_DEBUG__", {
+      configurable: true,
+      value: Object.freeze({
+        getEvents: getDebugEvents,
+        clear: clearDebugEvents,
+      }),
+    });
+  } catch (error) {
+    logDebugError(error);
+  }
+}
 
 function domainIsAllowed(settings: UserSettings | null): boolean {
   return settings !== null && isDomainAllowed(hostname, settings);
@@ -125,14 +170,14 @@ async function processConversions(): Promise<void> {
     isProcessing = false;
 
     if (conversionRequested) {
-      void processConversions().catch(() => undefined);
+      void processConversions().catch(logDebugError);
     }
   }
 }
 
 function requestConversion(): void {
   conversionRequested = true;
-  void processConversions().catch(() => undefined);
+  void processConversions().catch(logDebugError);
 }
 
 function handleSettingsChange(settings: UserSettings): void {
@@ -178,6 +223,7 @@ function handleSettingsChange(settings: UserSettings): void {
 }
 
 async function run(): Promise<void> {
+  exposeDebugHelper();
   console.log("[EUC] Content script loaded");
 
   currentSettings = await getSettings();
@@ -198,4 +244,4 @@ async function run(): Promise<void> {
   }
 }
 
-void run().catch(() => undefined);
+void run().catch(logDebugError);
