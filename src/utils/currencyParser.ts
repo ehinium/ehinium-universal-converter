@@ -20,17 +20,14 @@ const currencyByCode = new Map(
   fiatCurrencies.map((currency) => [currency.code, currency])
 );
 
-const symbolCurrencies = new Map<string, string[]>();
+const identifierCurrencies = new Map<string, Set<string>>();
 
 for (const currency of fiatCurrencies) {
-  for (const symbol of currency.symbols) {
-    if (symbol === currency.code) {
-      continue;
-    }
+  for (const identifier of [currency.code, ...currency.symbols]) {
+    const codes = identifierCurrencies.get(identifier) ?? new Set<string>();
 
-    const codes = symbolCurrencies.get(symbol) ?? [];
-    codes.push(currency.code);
-    symbolCurrencies.set(symbol, codes);
+    codes.add(currency.code);
+    identifierCurrencies.set(identifier, codes);
   }
 }
 
@@ -42,10 +39,30 @@ const ambiguousSymbolDefaults = new Map<string, string>([
   ["¥", "JPY"],
 ]);
 const unsupportedAmbiguousSymbols = new Set(["R", "K", "F", "L", "P", "Q", "kr"]);
+const unsafeSuffixSymbols = new Set([
+  "$",
+  "€",
+  "£",
+  "¥",
+  "R",
+  "K",
+  "F",
+  "L",
+  "P",
+  "Q",
+  "kr",
+  "%",
+  "+",
+]);
 
 const symbolToCurrency = new Map<string, string>();
+const suffixSymbolToCurrency = new Map<string, string>();
 
-for (const [symbol, codes] of symbolCurrencies) {
+for (const [symbol, codes] of identifierCurrencies) {
+  if (currencyByCode.has(symbol)) {
+    continue;
+  }
+
   if (
     unsupportedAmbiguousSymbols.has(symbol) ||
     /^[A-Za-z]$/u.test(symbol)
@@ -53,23 +70,43 @@ for (const [symbol, codes] of symbolCurrencies) {
     continue;
   }
 
-  if (codes.length === 1) {
-    symbolToCurrency.set(symbol, codes[0]);
+  if (codes.size === 1) {
+    const currency = codes.values().next().value;
+
+    if (currency) {
+      symbolToCurrency.set(symbol, currency);
+    }
+
     continue;
   }
 
   const defaultCurrency = ambiguousSymbolDefaults.get(symbol);
 
-  if (defaultCurrency && codes.includes(defaultCurrency)) {
+  if (defaultCurrency && codes.has(defaultCurrency)) {
     symbolToCurrency.set(symbol, defaultCurrency);
+  }
+}
+
+for (const [symbol, codes] of identifierCurrencies) {
+  if (
+    currencyByCode.has(symbol) ||
+    unsafeSuffixSymbols.has(symbol) ||
+    /^[A-Za-z]$/u.test(symbol) ||
+    codes.size !== 1
+  ) {
+    continue;
+  }
+
+  const currency = codes.values().next().value;
+
+  if (currency) {
+    suffixSymbolToCurrency.set(symbol, currency);
   }
 }
 
 const codePattern = createAlternation([...currencyByCode.keys()]);
 const symbolPattern = createAlternation([...symbolToCurrency.keys()]);
-const suffixSymbolPattern = createAlternation(
-  [...symbolToCurrency.keys()].filter((symbol) => /^\p{L}{2,}$/u.test(symbol))
-);
+const suffixSymbolPattern = createAlternation([...suffixSymbolToCurrency.keys()]);
 
 const codePrefixRegex = createPrefixRegex(codePattern, "gu");
 const codeSuffixRegex = createSuffixRegex(codePattern, "gu");
@@ -189,13 +226,15 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
     currencyByCode.has(code) ? code : undefined;
   const resolveSymbol = (symbol: string): string | undefined =>
     symbolToCurrency.get(symbol);
+  const resolveSuffixSymbol = (symbol: string): string | undefined =>
+    suffixSymbolToCurrency.get(symbol);
   const codeMatches = [
     ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode),
     ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode),
   ];
   const symbolMatches = [
     ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol),
-    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSymbol),
+    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSuffixSymbol),
   ];
   const uniqueMatches = new Map<string, IndexedCurrencyMatch>();
 

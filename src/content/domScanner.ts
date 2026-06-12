@@ -1,5 +1,15 @@
 import { isInsideExcludedContent } from "./domExclusions";
 
+const EXCLUDED_TEXT_NODE_SELECTOR = [
+  ".a-price",
+  ".a-offscreen",
+  '[aria-hidden="true"]',
+  "[data-ehinium-price-key]",
+  '[data-ehinium-ignore="true"]',
+  '[data-ehinium-badge="true"]',
+  '[data-ehinium-converted="true"]',
+].join(", ");
+
 export function getTextNodes(root: Node): Text[] {
   const textNodes: Text[] = [];
   const ownerDocument = root.ownerDocument ?? document;
@@ -15,7 +25,10 @@ export function getTextNodes(root: Node): Text[] {
           return NodeFilter.FILTER_REJECT;
         }
 
-        if (isInsideExcludedContent(parent)) {
+        if (
+          isInsideExcludedContent(parent) ||
+          parent.closest(EXCLUDED_TEXT_NODE_SELECTOR)
+        ) {
           return NodeFilter.FILTER_REJECT;
         }
 

@@ -10,7 +10,7 @@ $99.99
 
 becomes
 
-$99.99 (≈ €86.03)
+$99.99 (€86.03)
 
 ## Rules
 
@@ -30,7 +30,7 @@ Phase 1:
 * Append converted value inline
 
 Example:
-$99.99 → $99.99 (≈ €86.03)
+$99.99 → $99.99 (€86.03)
 
 Phase 2:
 
