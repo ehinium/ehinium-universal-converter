@@ -6,6 +6,7 @@ const baseSettings: UserSettings = {
   enabled: true,
   converterMode: "currencies",
   badgeStyle: "default",
+  badgeVisibility: "always",
   unitSystem: "auto",
   targetLengthUnit: "auto",
   targetWeightUnit: "auto",

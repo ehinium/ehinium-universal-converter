@@ -1,5 +1,6 @@
 export type ConverterMode = "currencies" | "units" | "everything";
 export type BadgeStyle = "default" | "compact" | "minimal";
+export type BadgeVisibility = "always" | "hover";
 export type UnitSystem = "auto" | "metric" | "imperial";
 export type TargetLengthUnit =
   | "auto"
@@ -19,6 +20,7 @@ export type UserSettings = {
   enabled: boolean;
   converterMode: ConverterMode;
   badgeStyle: BadgeStyle;
+  badgeVisibility: BadgeVisibility;
   unitSystem: UnitSystem;
   targetLengthUnit: TargetLengthUnit;
   targetWeightUnit: TargetWeightUnit;

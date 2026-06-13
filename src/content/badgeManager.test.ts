@@ -1,5 +1,6 @@
 import { Window } from "happy-dom";
 import { createBadge } from "./badgeManager";
+import { getHoverTarget } from "./hoverRegistry";
 
 const window = new Window();
 
@@ -32,7 +33,7 @@ function wait(milliseconds: number): Promise<void> {
   let copiedText: string | null = null;
   let parentClicks = 0;
   const parent = document.createElement("button");
-  const badge = createBadge("$4.70", "$4.70");
+  const badge = createBadge("$4.70", "AED 16.99 → $4.70");
 
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -55,6 +56,12 @@ function wait(milliseconds: number): Promise<void> {
 
   expectEqual(copiedText, "$4.70", "copied badge value");
   expectEqual(badge.textContent, "Copied", "temporary copied feedback");
+  expectEqual(badge.title, "AED 16.99 → $4.70", "badge title tooltip");
+  expectEqual(
+    getHoverTarget(badge)?.content,
+    "AED 16.99 → $4.70",
+    "registered hover tooltip"
+  );
   expectEqual(parentClicks, 0, "parent click count");
   expectEqual(badge.style.cursor, "pointer", "clickable cursor");
 

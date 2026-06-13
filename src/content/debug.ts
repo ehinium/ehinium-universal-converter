@@ -7,8 +7,10 @@ export type DebugEvent = {
     | "skip:duplicate"
     | "skip:unit-duplicate"
     | "skip:unsafe-placement"
+    | "skip:hover-duplicate"
     | "render:badge"
     | "render:unit-badge"
+    | "render:hover-conversion"
     | "error";
   sourceCurrency?: string;
   targetCurrency?: string;

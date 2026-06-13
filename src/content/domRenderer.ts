@@ -4,6 +4,7 @@ import {
 } from "../utils/currencyParser";
 import type {
   BadgeStyle,
+  BadgeVisibility,
   ConverterMode,
   TargetLengthUnit,
   TargetTemperatureUnit,
@@ -28,12 +29,17 @@ import { debugLog } from "./debug";
 import { isInsideExcludedContent } from "./domExclusions";
 import { detectGroupedPrices } from "./groupedPriceDetector";
 import { findPriceAnchor } from "./priceAnchor";
+import {
+  clearHoverTargets,
+  registerHoverConversionTarget,
+} from "./hoverRegistry";
 
 export type RenderConversionOptions = {
   enabled: boolean;
   targetCurrency: string;
   converterMode: ConverterMode;
   badgeStyle: BadgeStyle;
+  badgeVisibility: BadgeVisibility;
   unitSystem: UnitSystem;
   targetLengthUnit: TargetLengthUnit;
   targetWeightUnit: TargetWeightUnit;
@@ -90,6 +96,49 @@ function formatAmount(amount: number, currency: string): string {
   }
 }
 
+function formatReadableNumber(amount: number): string {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 6,
+  }).format(amount);
+}
+
+function formatUnitLabel(unit: UnitCode): string {
+  return unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
+}
+
+function formatSourceCurrency(match: CurrencyMatch): string {
+  return `${match.currency} ${formatReadableNumber(match.amount)}`;
+}
+
+function formatSourceUnit(match: UnitMatch): string {
+  return `${formatReadableNumber(match.amount)} ${formatUnitLabel(match.unit)}`;
+}
+
+function formatTooltip(source: string, converted: string): string {
+  return `${source} → ${converted}`;
+}
+
+function registerHoverConversion(
+  anchor: HTMLElement,
+  identity: string,
+  content: string,
+  details: Omit<Parameters<typeof debugLog>[0], "type">
+): boolean {
+  if (!registerHoverConversionTarget(anchor, content, identity)) {
+    debugLog({
+      type: "skip:hover-duplicate",
+      ...details,
+    });
+    return false;
+  }
+
+  debugLog({
+    type: "render:hover-conversion",
+    ...details,
+  });
+  return true;
+}
+
 function getBadgeKey(match: CurrencyMatch, targetCurrency: string): BadgeKey {
   return {
     sourceCurrency: match.currency,
@@ -140,7 +189,7 @@ function formatUnitAmount(
       ? { maximumSignificantDigits: 2 }
       : { maximumFractionDigits: 2 }
   ).format(amount);
-  const label = unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
+  const label = formatUnitLabel(unit);
 
   return `${formattedAmount} ${label}`;
 }
@@ -239,6 +288,7 @@ function renderUnitConversions(
   options: Pick<
     RenderConversionOptions,
     | "badgeStyle"
+    | "badgeVisibility"
     | "unitSystem"
     | "targetLengthUnit"
     | "targetWeightUnit"
@@ -255,7 +305,11 @@ function renderUnitConversions(
     const text = node.textContent;
     const anchor = node.parentElement;
 
-    if (!text || !anchor || !isSafeBadgePlacement(anchor)) {
+    if (
+      !text ||
+      !anchor ||
+      (options.badgeVisibility === "always" && !isSafeBadgePlacement(anchor))
+    ) {
       continue;
     }
 
@@ -307,6 +361,30 @@ function renderUnitConversions(
       }
 
       const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmount);
+      const formattedTooltip = formatTooltip(
+        formatSourceUnit(match),
+        formattedAmount
+      );
+
+      if (options.badgeVisibility === "hover") {
+        if (
+          registerHoverConversion(
+            anchor,
+            serializeBadgeKey(badgeKey),
+            formattedTooltip,
+            {
+              sourceUnit: match.unit,
+              targetUnit,
+              amount: match.amount,
+              formatted: formattedAmount,
+              text: match.raw,
+            }
+          )
+        ) {
+          renderedCount++;
+        }
+        continue;
+      }
 
       if (badgeExists(anchor, badgeKey)) {
         debugLog({
@@ -321,7 +399,7 @@ function renderUnitConversions(
 
       const badge = createBadge(
         formattedAmount,
-        formattedAmount,
+        formattedTooltip,
         options.badgeStyle
       );
 
@@ -397,7 +475,10 @@ export function renderConversions(
       continue;
     }
 
-    if (!isSafeBadgePlacement(match.anchor)) {
+    if (
+      options.badgeVisibility === "always" &&
+      !isSafeBadgePlacement(match.anchor)
+    ) {
       debugLog({
         type: "skip:unsafe-placement",
         sourceCurrency: currencyMatch.currency,
@@ -427,9 +508,34 @@ export function renderConversions(
       convertedAmount,
       options.targetCurrency
     );
+    const formattedTooltip = formatTooltip(
+      formatSourceCurrency(currencyMatch),
+      formattedAmount
+    );
+
+    if (options.badgeVisibility === "hover") {
+      if (
+        registerHoverConversion(
+          match.anchor,
+          serializeBadgeKey(badgeKey),
+          formattedTooltip,
+          {
+            sourceCurrency: currencyMatch.currency,
+            targetCurrency: options.targetCurrency,
+            amount: currencyMatch.amount,
+            formatted: formattedAmount,
+            text: currencyMatch.raw,
+          }
+        )
+      ) {
+        renderedCount++;
+      }
+      continue;
+    }
+
     const badge = createBadge(
       formattedAmount,
-      formattedAmount,
+      formattedTooltip,
       options.badgeStyle
     );
 
@@ -520,7 +626,10 @@ export function renderConversions(
         continue;
       }
 
-      if (!isSafeBadgePlacement(anchor)) {
+      if (
+        options.badgeVisibility === "always" &&
+        !isSafeBadgePlacement(anchor)
+      ) {
         debugLog({
           type: "skip:unsafe-placement",
           sourceCurrency: match.currency,
@@ -550,9 +659,34 @@ export function renderConversions(
         convertedAmount,
         options.targetCurrency
       );
+      const formattedTooltip = formatTooltip(
+        formatSourceCurrency(match),
+        formattedAmount
+      );
+
+      if (options.badgeVisibility === "hover") {
+        if (
+          registerHoverConversion(
+            anchor,
+            serializeBadgeKey(badgeKey),
+            formattedTooltip,
+            {
+              sourceCurrency: match.currency,
+              targetCurrency: options.targetCurrency,
+              amount: match.amount,
+              formatted: formattedAmount,
+              text: match.raw,
+            }
+          )
+        ) {
+          renderedCount++;
+        }
+        continue;
+      }
+
       const badge = createBadge(
         formattedAmount,
-        formattedAmount,
+        formattedTooltip,
         options.badgeStyle
       );
 
@@ -592,4 +726,5 @@ export function renderConversions(
 
 export function resetRenderedConversions(root: ParentNode): void {
   removeBadges(root);
+  clearHoverTargets();
 }

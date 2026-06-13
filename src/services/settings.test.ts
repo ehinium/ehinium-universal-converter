@@ -16,6 +16,12 @@ if (defaultSettings.badgeStyle !== "default") {
   );
 }
 
+if (defaultSettings.badgeVisibility !== "always") {
+  throw new Error(
+    `Expected default badge visibility to be always, received ${defaultSettings.badgeVisibility}`
+  );
+}
+
 if (
   defaultSettings.unitSystem !== "auto" ||
   defaultSettings.targetLengthUnit !== "auto" ||

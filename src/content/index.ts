@@ -5,6 +5,7 @@ import {
 import { isDomainAllowed } from "../services/domainRules";
 import { getExchangeRates } from "../services/rates";
 import type { UserSettings } from "../types/settings";
+import type { ExtensionMessage } from "../shared/messages";
 import { convertCurrency } from "../utils/currencyConverter";
 import {
   clearDebugEvents,
@@ -18,7 +19,7 @@ import {
   renderConversions,
   resetRenderedConversions,
 } from "./domRenderer";
-import { getHoverTarget } from "./hoverRegistry";
+import { getClosestHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
 import { hideTooltip, showTooltip } from "./tooltip";
 
@@ -37,6 +38,7 @@ let conversionRequested = false;
 let settingsVersion = 0;
 let stopObserver: (() => void) | null = null;
 let hoverListenersRegistered = false;
+let manualConversionListenerRegistered = false;
 
 const hostname = window.location.hostname;
 
@@ -107,12 +109,7 @@ function registerHoverListeners(): void {
       return;
     }
 
-    const convertedElement = target.closest<HTMLElement>(
-      "[data-ehinium-converted]"
-    );
-    const hoverTarget = convertedElement
-      ? getHoverTarget(convertedElement)
-      : null;
+    const hoverTarget = getClosestHoverTarget(target);
 
     if (hoverTarget) {
       showTooltip(event.clientX, event.clientY, hoverTarget.content);
@@ -123,6 +120,90 @@ function registerHoverListeners(): void {
 
   document.addEventListener("mouseleave", hideTooltip);
   hoverListenersRegistered = true;
+}
+
+async function copyText(value: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall through to the temporary textarea fallback.
+  }
+
+  const textarea = document.createElement("textarea");
+
+  textarea.value = value;
+  textarea.setAttribute("data-ehinium-ignore", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+}
+
+function showManualConversionToast(formatted: string): void {
+  const toast = document.createElement("div");
+
+  toast.setAttribute("data-ehinium-ignore", "true");
+  toast.textContent = `Converted and copied: ${formatted}`;
+  toast.style.position = "fixed";
+  toast.style.right = "16px";
+  toast.style.bottom = "16px";
+  toast.style.zIndex = "2147483647";
+  toast.style.padding = "9px 12px";
+  toast.style.borderRadius = "8px";
+  toast.style.background = "rgba(24, 29, 38, 0.96)";
+  toast.style.color = "#ffffff";
+  toast.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.22)";
+  toast.style.font =
+    '12px/1.4 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  toast.style.pointerEvents = "none";
+  document.documentElement.append(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 1800);
+}
+
+function registerManualConversionListener(): void {
+  if (manualConversionListenerRegistered) {
+    return;
+  }
+
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if (
+      typeof message !== "object" ||
+      message === null ||
+      (message as Partial<ExtensionMessage>).type !== "SHOW_MANUAL_CONVERSION"
+    ) {
+      return false;
+    }
+
+    const formatted = (message as Partial<ExtensionMessage> & {
+      formatted?: unknown;
+    }).formatted;
+
+    if (typeof formatted !== "string") {
+      return false;
+    }
+
+    void copyText(formatted)
+      .then(() => {
+        showManualConversionToast(formatted);
+      })
+      .catch(logDebugError);
+    return false;
+  });
+
+  manualConversionListenerRegistered = true;
 }
 
 async function processConversions(): Promise<void> {
@@ -149,6 +230,7 @@ async function processConversions(): Promise<void> {
           targetCurrency: settings.targetCurrency,
           converterMode: settings.converterMode,
           badgeStyle: settings.badgeStyle,
+          badgeVisibility: settings.badgeVisibility,
           unitSystem: settings.unitSystem,
           targetLengthUnit: settings.targetLengthUnit,
           targetWeightUnit: settings.targetWeightUnit,
@@ -172,6 +254,7 @@ async function processConversions(): Promise<void> {
         currentSettings.targetCurrency !== settings.targetCurrency ||
         currentSettings.converterMode !== settings.converterMode ||
         currentSettings.badgeStyle !== settings.badgeStyle ||
+        currentSettings.badgeVisibility !== settings.badgeVisibility ||
         currentSettings.unitSystem !== settings.unitSystem ||
         currentSettings.targetLengthUnit !== settings.targetLengthUnit ||
         currentSettings.targetWeightUnit !== settings.targetWeightUnit ||
@@ -185,6 +268,7 @@ async function processConversions(): Promise<void> {
         targetCurrency: settings.targetCurrency,
         converterMode: settings.converterMode,
         badgeStyle: settings.badgeStyle,
+        badgeVisibility: settings.badgeVisibility,
         unitSystem: settings.unitSystem,
         targetLengthUnit: settings.targetLengthUnit,
         targetWeightUnit: settings.targetWeightUnit,
@@ -225,6 +309,8 @@ function handleSettingsChange(settings: UserSettings): void {
   const converterModeChanged =
     previousSettings?.converterMode !== settings.converterMode;
   const badgeStyleChanged = previousSettings?.badgeStyle !== settings.badgeStyle;
+  const badgeVisibilityChanged =
+    previousSettings?.badgeVisibility !== settings.badgeVisibility;
   const unitPreferencesChanged =
     previousSettings?.unitSystem !== settings.unitSystem ||
     previousSettings?.targetLengthUnit !== settings.targetLengthUnit ||
@@ -240,6 +326,7 @@ function handleSettingsChange(settings: UserSettings): void {
     !enabledChanged &&
     !converterModeChanged &&
     !badgeStyleChanged &&
+    !badgeVisibilityChanged &&
     !unitPreferencesChanged &&
     wasDomainAllowed === domainAllowed
   ) {
@@ -271,6 +358,7 @@ function handleSettingsChange(settings: UserSettings): void {
     targetCurrencyChanged ||
     converterModeChanged ||
     badgeStyleChanged ||
+    badgeVisibilityChanged ||
     unitPreferencesChanged ||
     !wasDomainAllowed
   ) {
@@ -283,6 +371,7 @@ function handleSettingsChange(settings: UserSettings): void {
 
 async function run(): Promise<void> {
   exposeDebugHelper();
+  registerManualConversionListener();
   console.log("[EUC] Content script loaded");
 
   currentSettings = await getSettings();

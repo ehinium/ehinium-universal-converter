@@ -6,4 +6,12 @@ export type PingMessage = {
   type: "PING";
 };
 
-export type ExtensionMessage = GetSettingsMessage | PingMessage;
+export type ShowManualConversionMessage = {
+  type: "SHOW_MANUAL_CONVERSION";
+  formatted: string;
+};
+
+export type ExtensionMessage =
+  | GetSettingsMessage
+  | PingMessage
+  | ShowManualConversionMessage;

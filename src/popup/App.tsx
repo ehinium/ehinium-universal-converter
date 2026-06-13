@@ -403,6 +403,24 @@ function App() {
             <option value="minimal">Minimal</option>
           </select>
         </label>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Badge visibility</span>
+          <select
+            value={settings.badgeVisibility}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                badgeVisibility:
+                  event.target.value as UserSettings["badgeVisibility"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="always">Always show</option>
+            <option value="hover">Show on hover</option>
+          </select>
+        </label>
       </section>
 
       <section

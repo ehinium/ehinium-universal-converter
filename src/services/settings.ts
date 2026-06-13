@@ -1,5 +1,6 @@
 import type {
   BadgeStyle,
+  BadgeVisibility,
   ConverterMode,
   TargetLengthUnit,
   TargetTemperatureUnit,
@@ -33,6 +34,9 @@ function mergeSettings(value: unknown): UserSettings {
     badgeStyle: isBadgeStyle(stored.badgeStyle)
       ? stored.badgeStyle
       : defaultSettings.badgeStyle,
+    badgeVisibility: isBadgeVisibility(stored.badgeVisibility)
+      ? stored.badgeVisibility
+      : defaultSettings.badgeVisibility,
     unitSystem: isUnitSystem(stored.unitSystem)
       ? stored.unitSystem
       : defaultSettings.unitSystem,
@@ -91,6 +95,10 @@ function isTargetTemperatureUnit(
 
 function isBadgeStyle(value: unknown): value is BadgeStyle {
   return value === "default" || value === "compact" || value === "minimal";
+}
+
+function isBadgeVisibility(value: unknown): value is BadgeVisibility {
+  return value === "always" || value === "hover";
 }
 
 function isConverterMode(value: unknown): value is ConverterMode {

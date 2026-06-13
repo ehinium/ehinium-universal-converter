@@ -1,6 +1,7 @@
 import { Window } from "happy-dom";
 import type {
   BadgeStyle,
+  BadgeVisibility,
   ConverterMode,
   TargetLengthUnit,
   TargetTemperatureUnit,
@@ -10,6 +11,7 @@ import type {
 import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
+import { getHoverTarget } from "./hoverRegistry";
 
 const window = new Window();
 
@@ -69,13 +71,15 @@ function render(
   targetLengthUnit: TargetLengthUnit = "auto",
   targetWeightUnit: TargetWeightUnit = "auto",
   targetTemperatureUnit: TargetTemperatureUnit = "auto",
-  unitSystem: UnitSystem = "auto"
+  unitSystem: UnitSystem = "auto",
+  badgeVisibility: BadgeVisibility = "always"
 ): number {
   return renderConversions(getTextNodes(root), {
     enabled,
     targetCurrency,
     converterMode,
     badgeStyle,
+    badgeVisibility,
     unitSystem,
     targetLengthUnit,
     targetWeightUnit,
@@ -106,6 +110,32 @@ function render(
 }
 
 {
+  const root = createRoot("<span>AED 16.99</span>");
+  render(root, "USD", () => 4.63);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(badge?.textContent, "$4.63", "currency tooltip visible badge text");
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    "AED 16.99 → $4.63",
+    "currency tooltip content"
+  );
+}
+
+{
+  const root = createRoot("<span>10 kg</span>");
+  render(root, "USD", () => null, "units");
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(badge?.textContent, "22 lb", "unit tooltip visible badge text");
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    "10 kg → 22 lb",
+    "unit tooltip content"
+  );
+}
+
+{
   const root = createRoot("<span>304.95 TL</span>");
   const textNode = root.querySelector("span")?.firstChild;
 
@@ -118,6 +148,7 @@ function render(
     targetCurrency: "USD",
     converterMode: "currencies",
     badgeStyle: "default",
+    badgeVisibility: "always",
     unitSystem: "auto",
     targetLengthUnit: "auto",
     targetWeightUnit: "auto",
@@ -132,6 +163,7 @@ function render(
     targetCurrency: "USD",
     converterMode: "currencies",
     badgeStyle: "default",
+    badgeVisibility: "always",
     unitSystem: "auto",
     targetLengthUnit: "auto",
     targetWeightUnit: "auto",
@@ -228,6 +260,7 @@ function render(
     targetCurrency: "USD",
     converterMode: "units" as const,
     badgeStyle: "default" as const,
+    badgeVisibility: "always" as const,
     unitSystem: "auto" as const,
     targetLengthUnit: "auto" as const,
     targetWeightUnit: "auto" as const,
@@ -509,5 +542,123 @@ for (const source of ["10 in", "5 ft"] as const) {
     root.querySelector(BADGE_SELECTOR)?.textContent,
     "81.65 kg",
     "imperial exact weight override badge"
+  );
+}
+
+{
+  const root = createRoot("<span>AED 16.99</span>");
+  const source = root.querySelector<HTMLElement>("span");
+  const rendered = render(
+    root,
+    "USD",
+    () => 4.63,
+    "currencies",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "auto",
+    "hover"
+  );
+
+  expectEqual(rendered, 1, "currency hover rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "currency hover badges");
+  expectEqual(
+    source ? getHoverTarget(source)?.content : null,
+    "AED 16.99 → $4.63",
+    "currency hover target"
+  );
+
+  const duplicateRendered = render(
+    root,
+    "USD",
+    () => 4.63,
+    "currencies",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "auto",
+    "hover"
+  );
+
+  expectEqual(duplicateRendered, 0, "currency hover duplicate rendered count");
+}
+
+{
+  const root = createRoot("<span>10 kg</span>");
+  const source = root.querySelector<HTMLElement>("span");
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "auto",
+    "hover"
+  );
+
+  expectEqual(rendered, 1, "unit hover rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "unit hover badges");
+  expectEqual(
+    source ? getHoverTarget(source)?.content : null,
+    "10 kg → 22 lb",
+    "unit hover target"
+  );
+}
+
+{
+  const root = createRoot("<span>€100 and 10 kg</span>");
+  const source = root.querySelector<HTMLElement>("span");
+  const rendered = render(
+    root,
+    "USD",
+    () => 110,
+    "currencies",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "auto",
+    "hover"
+  );
+
+  expectEqual(rendered, 1, "currency-only hover rendered count");
+  expectEqual(
+    source ? getHoverTarget(source)?.content : null,
+    "EUR 100 → $110.00",
+    "currency-only hover target"
+  );
+}
+
+{
+  const root = createRoot("<span>€100 and 10 kg</span>");
+  const source = root.querySelector<HTMLElement>("span");
+  const rendered = render(
+    root,
+    "USD",
+    () => 110,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "auto",
+    "hover"
+  );
+
+  expectEqual(rendered, 1, "unit-only hover rendered count");
+  expectEqual(
+    source ? getHoverTarget(source)?.content : null,
+    "10 kg → 22 lb",
+    "unit-only hover target"
   );
 }
