@@ -5,6 +5,10 @@ export const defaultSettings: UserSettings = {
   enabled: true,
   converterMode: "currencies",
   badgeStyle: "default",
+  unitSystem: "auto",
+  targetLengthUnit: "auto",
+  targetWeightUnit: "auto",
+  targetTemperatureUnit: "auto",
   whitelist: [],
   blacklist: [],
 };

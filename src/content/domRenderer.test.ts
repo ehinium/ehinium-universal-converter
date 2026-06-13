@@ -1,5 +1,12 @@
 import { Window } from "happy-dom";
-import type { BadgeStyle, ConverterMode } from "../types/settings";
+import type {
+  BadgeStyle,
+  ConverterMode,
+  TargetLengthUnit,
+  TargetTemperatureUnit,
+  TargetWeightUnit,
+  UnitSystem,
+} from "../types/settings";
 import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
@@ -58,13 +65,21 @@ function render(
   convertAmount: (match: CurrencyMatch) => number | null,
   converterMode: ConverterMode = "currencies",
   enabled = true,
-  badgeStyle: BadgeStyle = "default"
+  badgeStyle: BadgeStyle = "default",
+  targetLengthUnit: TargetLengthUnit = "auto",
+  targetWeightUnit: TargetWeightUnit = "auto",
+  targetTemperatureUnit: TargetTemperatureUnit = "auto",
+  unitSystem: UnitSystem = "auto"
 ): number {
   return renderConversions(getTextNodes(root), {
     enabled,
     targetCurrency,
     converterMode,
     badgeStyle,
+    unitSystem,
+    targetLengthUnit,
+    targetWeightUnit,
+    targetTemperatureUnit,
     convertAmount,
   });
 }
@@ -103,6 +118,10 @@ function render(
     targetCurrency: "USD",
     converterMode: "currencies",
     badgeStyle: "default",
+    unitSystem: "auto",
+    targetLengthUnit: "auto",
+    targetWeightUnit: "auto",
+    targetTemperatureUnit: "auto",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -113,6 +132,10 @@ function render(
     targetCurrency: "USD",
     converterMode: "currencies",
     badgeStyle: "default",
+    unitSystem: "auto",
+    targetLengthUnit: "auto",
+    targetWeightUnit: "auto",
+    targetTemperatureUnit: "auto",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -205,6 +228,10 @@ function render(
     targetCurrency: "USD",
     converterMode: "units" as const,
     badgeStyle: "default" as const,
+    unitSystem: "auto" as const,
+    targetLengthUnit: "auto" as const,
+    targetWeightUnit: "auto" as const,
+    targetTemperatureUnit: "auto" as const,
     convertAmount: () => null,
   };
 
@@ -275,4 +302,212 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
   expectEqual(badge?.dataset.ehiniumBadgeStyle, "minimal", "minimal badge marker");
   expectEqual(badge?.style.background, "transparent", "minimal badge background");
   expectEqual(badge?.style.textDecoration, "underline dotted", "minimal badge decoration");
+}
+
+{
+  const root = createRoot("<span>10 in and 5 ft</span>");
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "cm"
+  );
+  const badges = [...root.querySelectorAll<HTMLElement>(BADGE_SELECTOR)].map(
+    (badge) => badge.textContent
+  ).sort();
+
+  expectEqual(rendered, 2, "selected length target rendered count");
+  expectEqual(
+    JSON.stringify(badges),
+    JSON.stringify(["152.4 cm", "25.4 cm"]),
+    "selected length target badges"
+  );
+}
+
+{
+  const root = createRoot("<span>180 lb</span>");
+  render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "kg"
+  );
+
+  expectEqual(
+    root.querySelector(BADGE_SELECTOR)?.textContent,
+    "81.65 kg",
+    "selected weight target badge"
+  );
+}
+
+{
+  const root = createRoot("<span>68 °F</span>");
+  render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "c"
+  );
+
+  expectEqual(
+    root.querySelector(BADGE_SELECTOR)?.textContent,
+    "20 °C",
+    "selected temperature target badge"
+  );
+}
+
+{
+  const root = createRoot("<span>180 cm</span>");
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "cm"
+  );
+
+  expectEqual(rendered, 0, "same selected target rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "same selected target badges");
+}
+
+for (const [source, expected] of [
+  ["10 in", "25.4 cm"],
+  ["5 ft", "1.52 m"],
+  ["2 mi", "3.22 km"],
+  ["180 lb", "81.65 kg"],
+] as const) {
+  const root = createRoot(`<span>${source}</span>`);
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "metric"
+  );
+
+  expectEqual(rendered, 1, `metric ${source} rendered count`);
+  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, expected, `metric ${source} badge`);
+}
+
+for (const source of ["50 kg", "180 cm", "2 km"] as const) {
+  const root = createRoot(`<span>${source}</span>`);
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "metric"
+  );
+
+  expectEqual(rendered, 0, `metric same-system ${source} rendered count`);
+}
+
+for (const [source, expected] of [
+  ["180 cm", "70.87 in"],
+  ["2 m", "6.56 ft"],
+  ["5 km", "3.11 mi"],
+  ["50 kg", "110.23 lb"],
+] as const) {
+  const root = createRoot(`<span>${source}</span>`);
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "imperial"
+  );
+
+  expectEqual(rendered, 1, `imperial ${source} rendered count`);
+  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, expected, `imperial ${source} badge`);
+}
+
+for (const source of ["10 in", "5 ft"] as const) {
+  const root = createRoot(`<span>${source}</span>`);
+  const rendered = render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "auto",
+    "auto",
+    "imperial"
+  );
+
+  expectEqual(rendered, 0, `imperial same-system ${source} rendered count`);
+}
+
+{
+  const root = createRoot("<span>5 ft</span>");
+  render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "cm",
+    "auto",
+    "auto",
+    "metric"
+  );
+
+  expectEqual(
+    root.querySelector(BADGE_SELECTOR)?.textContent,
+    "152.4 cm",
+    "metric exact length override badge"
+  );
+}
+
+{
+  const root = createRoot("<span>180 lb</span>");
+  render(
+    root,
+    "USD",
+    () => null,
+    "units",
+    true,
+    "default",
+    "auto",
+    "kg",
+    "auto",
+    "imperial"
+  );
+
+  expectEqual(
+    root.querySelector(BADGE_SELECTOR)?.textContent,
+    "81.65 kg",
+    "imperial exact weight override badge"
+  );
 }

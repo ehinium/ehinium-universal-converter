@@ -407,6 +407,103 @@ function App() {
 
       <section
         style={{ ...styles.card, marginTop: "14px" }}
+        aria-label="Unit preferences"
+      >
+        <span style={styles.label}>Unit preferences</span>
+        <p style={styles.description}>
+          Auto keeps smart defaults. Metric/Imperial only converts values from
+          the opposite system. Exact targets override this.
+        </p>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Unit system</span>
+          <select
+            value={settings.unitSystem}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                unitSystem: event.target.value as UserSettings["unitSystem"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="auto">Auto</option>
+            <option value="metric">Metric</option>
+            <option value="imperial">Imperial</option>
+          </select>
+        </label>
+
+        <span style={styles.label}>Advanced target overrides</span>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Length target</span>
+          <select
+            value={settings.targetLengthUnit}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                targetLengthUnit:
+                  event.target.value as UserSettings["targetLengthUnit"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="auto">Auto</option>
+            <option value="mm">Millimeters (mm)</option>
+            <option value="cm">Centimeters (cm)</option>
+            <option value="m">Meters (m)</option>
+            <option value="km">Kilometers (km)</option>
+            <option value="in">Inches (in)</option>
+            <option value="ft">Feet (ft)</option>
+            <option value="yd">Yards (yd)</option>
+            <option value="mi">Miles (mi)</option>
+          </select>
+        </label>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Weight target</span>
+          <select
+            value={settings.targetWeightUnit}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                targetWeightUnit:
+                  event.target.value as UserSettings["targetWeightUnit"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="auto">Auto</option>
+            <option value="mg">Milligrams (mg)</option>
+            <option value="g">Grams (g)</option>
+            <option value="kg">Kilograms (kg)</option>
+            <option value="oz">Ounces (oz)</option>
+            <option value="lb">Pounds (lb)</option>
+          </select>
+        </label>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Temperature target</span>
+          <select
+            value={settings.targetTemperatureUnit}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                targetTemperatureUnit:
+                  event.target.value as UserSettings["targetTemperatureUnit"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="auto">Auto</option>
+            <option value="c">Celsius (°C)</option>
+            <option value="f">Fahrenheit (°F)</option>
+          </select>
+        </label>
+      </section>
+
+      <section
+        style={{ ...styles.card, marginTop: "14px" }}
         aria-label="Site settings"
       >
         <span style={styles.label}>Site settings</span>

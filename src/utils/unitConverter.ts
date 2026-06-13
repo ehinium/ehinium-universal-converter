@@ -3,6 +3,7 @@ import {
   type UnitCategory,
   type UnitCode,
 } from "./unitTypes";
+import type { UnitSystem } from "../types/settings";
 
 const unitCategory = new Map<UnitCode, UnitCategory>(
   unitDefinitions.map((definition) => [definition.code, definition.category])
@@ -38,6 +39,27 @@ const defaultTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   mi: "km",
   c: "f",
   f: "c",
+};
+
+const metricTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
+  in: "cm",
+  ft: "m",
+  yd: "m",
+  mi: "km",
+  oz: "g",
+  lb: "kg",
+  f: "c",
+};
+
+const imperialTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
+  mm: "in",
+  cm: "in",
+  m: "ft",
+  km: "mi",
+  mg: "oz",
+  g: "oz",
+  kg: "lb",
+  c: "f",
 };
 
 function convertTemperature(
@@ -88,4 +110,24 @@ export function convertUnit(
 
 export function getDefaultTargetUnit(unit: UnitCode): UnitCode | null {
   return defaultTargets[unit] ?? null;
+}
+
+export function resolveTargetUnit(
+  unit: UnitCode,
+  unitSystem: UnitSystem,
+  exactTarget: UnitCode | "auto"
+): UnitCode | null {
+  if (exactTarget !== "auto") {
+    return exactTarget;
+  }
+
+  if (unitSystem === "metric") {
+    return metricTargets[unit] ?? null;
+  }
+
+  if (unitSystem === "imperial") {
+    return imperialTargets[unit] ?? null;
+  }
+
+  return getDefaultTargetUnit(unit);
 }

@@ -1,4 +1,8 @@
-import { convertUnit, getDefaultTargetUnit } from "./unitConverter";
+import {
+  convertUnit,
+  getDefaultTargetUnit,
+  resolveTargetUnit,
+} from "./unitConverter";
 import type { UnitCode } from "./unitTypes";
 
 function expectClose(
@@ -57,3 +61,51 @@ for (const [unit, expected] of Object.entries(expectedDefaultTargets)) {
     `default target for ${unit}`
   );
 }
+
+const expectedMetricTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
+  in: "cm",
+  ft: "m",
+  yd: "m",
+  mi: "km",
+  oz: "g",
+  lb: "kg",
+  f: "c",
+};
+
+for (const unit of Object.keys(expectedDefaultTargets) as UnitCode[]) {
+  expectEqual(
+    resolveTargetUnit(unit, "metric", "auto"),
+    expectedMetricTargets[unit] ?? null,
+    `metric target for ${unit}`
+  );
+}
+
+const expectedImperialTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
+  mm: "in",
+  cm: "in",
+  m: "ft",
+  km: "mi",
+  mg: "oz",
+  g: "oz",
+  kg: "lb",
+  c: "f",
+};
+
+for (const unit of Object.keys(expectedDefaultTargets) as UnitCode[]) {
+  expectEqual(
+    resolveTargetUnit(unit, "imperial", "auto"),
+    expectedImperialTargets[unit] ?? null,
+    `imperial target for ${unit}`
+  );
+}
+
+expectEqual(
+  resolveTargetUnit("ft", "metric", "cm"),
+  "cm",
+  "exact target overrides metric system"
+);
+expectEqual(
+  resolveTargetUnit("lb", "imperial", "kg"),
+  "kg",
+  "exact target overrides imperial system"
+);

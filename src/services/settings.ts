@@ -1,4 +1,12 @@
-import type { BadgeStyle, ConverterMode, UserSettings } from "../types/settings";
+import type {
+  BadgeStyle,
+  ConverterMode,
+  TargetLengthUnit,
+  TargetTemperatureUnit,
+  TargetWeightUnit,
+  UnitSystem,
+  UserSettings,
+} from "../types/settings";
 import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
@@ -25,6 +33,18 @@ function mergeSettings(value: unknown): UserSettings {
     badgeStyle: isBadgeStyle(stored.badgeStyle)
       ? stored.badgeStyle
       : defaultSettings.badgeStyle,
+    unitSystem: isUnitSystem(stored.unitSystem)
+      ? stored.unitSystem
+      : defaultSettings.unitSystem,
+    targetLengthUnit: isTargetLengthUnit(stored.targetLengthUnit)
+      ? stored.targetLengthUnit
+      : defaultSettings.targetLengthUnit,
+    targetWeightUnit: isTargetWeightUnit(stored.targetWeightUnit)
+      ? stored.targetWeightUnit
+      : defaultSettings.targetWeightUnit,
+    targetTemperatureUnit: isTargetTemperatureUnit(stored.targetTemperatureUnit)
+      ? stored.targetTemperatureUnit
+      : defaultSettings.targetTemperatureUnit,
     whitelist: isStringArray(stored.whitelist)
       ? stored.whitelist
       : defaultSettings.whitelist,
@@ -32,6 +52,41 @@ function mergeSettings(value: unknown): UserSettings {
       ? stored.blacklist
       : defaultSettings.blacklist,
   };
+}
+
+function isTargetLengthUnit(value: unknown): value is TargetLengthUnit {
+  return (
+    value === "auto" ||
+    value === "mm" ||
+    value === "cm" ||
+    value === "m" ||
+    value === "km" ||
+    value === "in" ||
+    value === "ft" ||
+    value === "yd" ||
+    value === "mi"
+  );
+}
+
+function isUnitSystem(value: unknown): value is UnitSystem {
+  return value === "auto" || value === "metric" || value === "imperial";
+}
+
+function isTargetWeightUnit(value: unknown): value is TargetWeightUnit {
+  return (
+    value === "auto" ||
+    value === "mg" ||
+    value === "g" ||
+    value === "kg" ||
+    value === "oz" ||
+    value === "lb"
+  );
+}
+
+function isTargetTemperatureUnit(
+  value: unknown
+): value is TargetTemperatureUnit {
+  return value === "auto" || value === "c" || value === "f";
 }
 
 function isBadgeStyle(value: unknown): value is BadgeStyle {

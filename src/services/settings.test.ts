@@ -15,3 +15,12 @@ if (defaultSettings.badgeStyle !== "default") {
     `Expected default badge style to be default, received ${defaultSettings.badgeStyle}`
   );
 }
+
+if (
+  defaultSettings.unitSystem !== "auto" ||
+  defaultSettings.targetLengthUnit !== "auto" ||
+  defaultSettings.targetWeightUnit !== "auto" ||
+  defaultSettings.targetTemperatureUnit !== "auto"
+) {
+  throw new Error("Expected unit system and all default target unit preferences to be auto");
+}

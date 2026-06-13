@@ -149,6 +149,10 @@ async function processConversions(): Promise<void> {
           targetCurrency: settings.targetCurrency,
           converterMode: settings.converterMode,
           badgeStyle: settings.badgeStyle,
+          unitSystem: settings.unitSystem,
+          targetLengthUnit: settings.targetLengthUnit,
+          targetWeightUnit: settings.targetWeightUnit,
+          targetTemperatureUnit: settings.targetTemperatureUnit,
           convertAmount: () => null,
         });
 
@@ -166,7 +170,12 @@ async function processConversions(): Promise<void> {
         !currentSettings?.enabled ||
         !domainIsAllowed(currentSettings) ||
         currentSettings.targetCurrency !== settings.targetCurrency ||
-        currentSettings.converterMode !== settings.converterMode
+        currentSettings.converterMode !== settings.converterMode ||
+        currentSettings.badgeStyle !== settings.badgeStyle ||
+        currentSettings.unitSystem !== settings.unitSystem ||
+        currentSettings.targetLengthUnit !== settings.targetLengthUnit ||
+        currentSettings.targetWeightUnit !== settings.targetWeightUnit ||
+        currentSettings.targetTemperatureUnit !== settings.targetTemperatureUnit
       ) {
         continue;
       }
@@ -176,6 +185,10 @@ async function processConversions(): Promise<void> {
         targetCurrency: settings.targetCurrency,
         converterMode: settings.converterMode,
         badgeStyle: settings.badgeStyle,
+        unitSystem: settings.unitSystem,
+        targetLengthUnit: settings.targetLengthUnit,
+        targetWeightUnit: settings.targetWeightUnit,
+        targetTemperatureUnit: settings.targetTemperatureUnit,
         convertAmount(match) {
           return convertCurrency(
             match.amount,
@@ -212,6 +225,11 @@ function handleSettingsChange(settings: UserSettings): void {
   const converterModeChanged =
     previousSettings?.converterMode !== settings.converterMode;
   const badgeStyleChanged = previousSettings?.badgeStyle !== settings.badgeStyle;
+  const unitPreferencesChanged =
+    previousSettings?.unitSystem !== settings.unitSystem ||
+    previousSettings?.targetLengthUnit !== settings.targetLengthUnit ||
+    previousSettings?.targetWeightUnit !== settings.targetWeightUnit ||
+    previousSettings?.targetTemperatureUnit !== settings.targetTemperatureUnit;
   const wasDomainAllowed = domainIsAllowed(previousSettings);
   const domainAllowed = isDomainAllowed(hostname, settings);
 
@@ -222,6 +240,7 @@ function handleSettingsChange(settings: UserSettings): void {
     !enabledChanged &&
     !converterModeChanged &&
     !badgeStyleChanged &&
+    !unitPreferencesChanged &&
     wasDomainAllowed === domainAllowed
   ) {
     return;
@@ -252,6 +271,7 @@ function handleSettingsChange(settings: UserSettings): void {
     targetCurrencyChanged ||
     converterModeChanged ||
     badgeStyleChanged ||
+    unitPreferencesChanged ||
     !wasDomainAllowed
   ) {
     resetRenderedConversions(document);

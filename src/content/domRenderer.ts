@@ -2,8 +2,15 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
-import type { BadgeStyle, ConverterMode } from "../types/settings";
-import { convertUnit, getDefaultTargetUnit } from "../utils/unitConverter";
+import type {
+  BadgeStyle,
+  ConverterMode,
+  TargetLengthUnit,
+  TargetTemperatureUnit,
+  TargetWeightUnit,
+  UnitSystem,
+} from "../types/settings";
+import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
 import { parseUnits } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
 import {
@@ -27,6 +34,10 @@ export type RenderConversionOptions = {
   targetCurrency: string;
   converterMode: ConverterMode;
   badgeStyle: BadgeStyle;
+  unitSystem: UnitSystem;
+  targetLengthUnit: TargetLengthUnit;
+  targetWeightUnit: TargetWeightUnit;
+  targetTemperatureUnit: TargetTemperatureUnit;
   convertAmount: (match: CurrencyMatch) => number | null;
 };
 
@@ -118,10 +129,17 @@ function getUnitBadgeKey(
   };
 }
 
-function formatUnitAmount(amount: number, unit: UnitCode): string {
-  const formattedAmount = new Intl.NumberFormat(undefined, {
-    maximumSignificantDigits: 2,
-  }).format(amount);
+function formatUnitAmount(
+  amount: number,
+  unit: UnitCode,
+  useAutoFormatting: boolean
+): string {
+  const formattedAmount = new Intl.NumberFormat(
+    undefined,
+    useAutoFormatting
+      ? { maximumSignificantDigits: 2 }
+      : { maximumFractionDigits: 2 }
+  ).format(amount);
   const label = unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
 
   return `${formattedAmount} ${label}`;
@@ -218,7 +236,14 @@ function insertTextBadgeIfNearby(
 
 function renderUnitConversions(
   textNodes: readonly Text[],
-  badgeStyle: BadgeStyle
+  options: Pick<
+    RenderConversionOptions,
+    | "badgeStyle"
+    | "unitSystem"
+    | "targetLengthUnit"
+    | "targetWeightUnit"
+    | "targetTemperatureUnit"
+  >
 ): number {
   let renderedCount = 0;
 
@@ -246,9 +271,19 @@ function renderUnitConversions(
         continue;
       }
 
-      const targetUnit = getDefaultTargetUnit(match.unit);
+      const preferredTarget =
+        match.category === "length"
+          ? options.targetLengthUnit
+          : match.category === "weight"
+            ? options.targetWeightUnit
+            : options.targetTemperatureUnit;
+      const targetUnit = resolveTargetUnit(
+        match.unit,
+        options.unitSystem,
+        preferredTarget
+      );
 
-      if (!targetUnit) {
+      if (!targetUnit || targetUnit === match.unit) {
         continue;
       }
 
@@ -261,7 +296,11 @@ function renderUnitConversions(
         continue;
       }
 
-      const formattedAmount = formatUnitAmount(convertedAmount, targetUnit);
+      const formattedAmount = formatUnitAmount(
+        convertedAmount,
+        targetUnit,
+        preferredTarget === "auto" && options.unitSystem === "auto"
+      );
 
       if (normalizeDisplayText(formattedAmount) === normalizeDisplayText(match.raw)) {
         continue;
@@ -280,7 +319,11 @@ function renderUnitConversions(
         continue;
       }
 
-      const badge = createBadge(formattedAmount, formattedAmount, badgeStyle);
+      const badge = createBadge(
+        formattedAmount,
+        formattedAmount,
+        options.badgeStyle
+      );
 
       markBadge(badge, badgeKey);
       if (!insertTextBadgeIfNearby(node, anchor, badge)) {
@@ -541,7 +584,7 @@ export function renderConversions(
   }
 
   if (options.converterMode !== "currencies") {
-    renderedCount += renderUnitConversions(nodes, options.badgeStyle);
+    renderedCount += renderUnitConversions(nodes, options);
   }
 
   return renderedCount;
