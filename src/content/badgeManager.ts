@@ -37,6 +37,8 @@ const PRICE_CONTAINER_SELECTOR = [
   ".product-price",
   ".price",
 ].join(", ");
+const COPY_FEEDBACK_DURATION_MS = 900;
+const copyFeedbackTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
 
 function normalizeAmount(amount: number): string {
   return amount
@@ -60,6 +62,36 @@ function isMatchingBadge(element: Element, serializedKey: string): boolean {
     element.matches(BADGE_SELECTOR) &&
     element.getAttribute(BADGE_KEY_ATTRIBUTE) === serializedKey
   );
+}
+
+async function copyBadgeContent(
+  badge: HTMLElement,
+  content: string
+): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(content);
+
+    const existingTimer = copyFeedbackTimers.get(badge);
+
+    if (existingTimer !== undefined) {
+      clearTimeout(existingTimer);
+    }
+
+    badge.textContent = "Copied";
+
+    const timer = setTimeout(() => {
+      badge.textContent = content;
+      copyFeedbackTimers.delete(badge);
+    }, COPY_FEEDBACK_DURATION_MS);
+
+    copyFeedbackTimers.set(badge, timer);
+  } catch {
+    // Clipboard access can be unavailable or denied on some pages.
+  }
 }
 
 export function createBadge(
@@ -90,6 +122,7 @@ export function createBadge(
   badge.style.whiteSpace = "nowrap";
   badge.style.textDecoration = "none";
   badge.style.pointerEvents = "auto";
+  badge.style.cursor = "pointer";
   badge.style.position = "relative";
   badge.style.zIndex = "2147483647";
 
@@ -107,6 +140,12 @@ export function createBadge(
     badge.style.textDecoration = "underline dotted";
     badge.style.textUnderlineOffset = "2px";
   }
+
+  badge.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void copyBadgeContent(badge, content);
+  });
 
   registerHoverTarget(badge, hoverContent);
   return badge;
