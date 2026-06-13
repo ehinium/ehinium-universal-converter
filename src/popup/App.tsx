@@ -385,6 +385,24 @@ function App() {
             ))}
           </select>
         </label>
+
+        <label style={styles.field}>
+          <span style={styles.label}>Badge style</span>
+          <select
+            value={settings.badgeStyle}
+            onChange={(event) =>
+              persistSettings({
+                ...settings,
+                badgeStyle: event.target.value as UserSettings["badgeStyle"],
+              })
+            }
+            style={styles.select}
+          >
+            <option value="default">Default</option>
+            <option value="compact">Compact</option>
+            <option value="minimal">Minimal</option>
+          </select>
+        </label>
       </section>
 
       <section

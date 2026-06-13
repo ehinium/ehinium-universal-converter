@@ -2,7 +2,7 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
-import type { ConverterMode } from "../types/settings";
+import type { BadgeStyle, ConverterMode } from "../types/settings";
 import { convertUnit, getDefaultTargetUnit } from "../utils/unitConverter";
 import { parseUnits } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
@@ -26,6 +26,7 @@ export type RenderConversionOptions = {
   enabled: boolean;
   targetCurrency: string;
   converterMode: ConverterMode;
+  badgeStyle: BadgeStyle;
   convertAmount: (match: CurrencyMatch) => number | null;
 };
 
@@ -215,7 +216,10 @@ function insertTextBadgeIfNearby(
   return false;
 }
 
-function renderUnitConversions(textNodes: readonly Text[]): number {
+function renderUnitConversions(
+  textNodes: readonly Text[],
+  badgeStyle: BadgeStyle
+): number {
   let renderedCount = 0;
 
   for (const node of textNodes) {
@@ -276,7 +280,7 @@ function renderUnitConversions(textNodes: readonly Text[]): number {
         continue;
       }
 
-      const badge = createBadge(formattedAmount, formattedAmount);
+      const badge = createBadge(formattedAmount, formattedAmount, badgeStyle);
 
       markBadge(badge, badgeKey);
       if (!insertTextBadgeIfNearby(node, anchor, badge)) {
@@ -380,7 +384,11 @@ export function renderConversions(
       convertedAmount,
       options.targetCurrency
     );
-    const badge = createBadge(formattedAmount, formattedAmount);
+    const badge = createBadge(
+      formattedAmount,
+      formattedAmount,
+      options.badgeStyle
+    );
 
     markBadge(badge, badgeKey);
     if (!insertGroupedBadgeIfNearby(match.anchor, badge)) {
@@ -499,7 +507,11 @@ export function renderConversions(
         convertedAmount,
         options.targetCurrency
       );
-      const badge = createBadge(formattedAmount, formattedAmount);
+      const badge = createBadge(
+        formattedAmount,
+        formattedAmount,
+        options.badgeStyle
+      );
 
       markBadge(badge, badgeKey);
       if (!insertTextBadgeIfNearby(node, anchor, badge)) {
@@ -529,7 +541,7 @@ export function renderConversions(
   }
 
   if (options.converterMode !== "currencies") {
-    renderedCount += renderUnitConversions(nodes);
+    renderedCount += renderUnitConversions(nodes, options.badgeStyle);
   }
 
   return renderedCount;

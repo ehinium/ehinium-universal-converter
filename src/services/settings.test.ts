@@ -9,3 +9,9 @@ if (defaultSettings.converterMode !== "currencies") {
     `Expected default converter mode to be currencies, received ${defaultSettings.converterMode}`
   );
 }
+
+if (defaultSettings.badgeStyle !== "default") {
+  throw new Error(
+    `Expected default badge style to be default, received ${defaultSettings.badgeStyle}`
+  );
+}

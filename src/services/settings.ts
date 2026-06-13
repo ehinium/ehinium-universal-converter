@@ -1,4 +1,4 @@
-import type { ConverterMode, UserSettings } from "../types/settings";
+import type { BadgeStyle, ConverterMode, UserSettings } from "../types/settings";
 import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
@@ -22,6 +22,9 @@ function mergeSettings(value: unknown): UserSettings {
     converterMode: isConverterMode(stored.converterMode)
       ? stored.converterMode
       : defaultSettings.converterMode,
+    badgeStyle: isBadgeStyle(stored.badgeStyle)
+      ? stored.badgeStyle
+      : defaultSettings.badgeStyle,
     whitelist: isStringArray(stored.whitelist)
       ? stored.whitelist
       : defaultSettings.whitelist,
@@ -29,6 +32,10 @@ function mergeSettings(value: unknown): UserSettings {
       ? stored.blacklist
       : defaultSettings.blacklist,
   };
+}
+
+function isBadgeStyle(value: unknown): value is BadgeStyle {
+  return value === "default" || value === "compact" || value === "minimal";
 }
 
 function isConverterMode(value: unknown): value is ConverterMode {

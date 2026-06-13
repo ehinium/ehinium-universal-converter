@@ -1,5 +1,5 @@
 import { Window } from "happy-dom";
-import type { ConverterMode } from "../types/settings";
+import type { BadgeStyle, ConverterMode } from "../types/settings";
 import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
@@ -57,12 +57,14 @@ function render(
   targetCurrency: string,
   convertAmount: (match: CurrencyMatch) => number | null,
   converterMode: ConverterMode = "currencies",
-  enabled = true
+  enabled = true,
+  badgeStyle: BadgeStyle = "default"
 ): number {
   return renderConversions(getTextNodes(root), {
     enabled,
     targetCurrency,
     converterMode,
+    badgeStyle,
     convertAmount,
   });
 }
@@ -100,6 +102,7 @@ function render(
     enabled: true,
     targetCurrency: "USD",
     converterMode: "currencies",
+    badgeStyle: "default",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -109,6 +112,7 @@ function render(
     enabled: true,
     targetCurrency: "USD",
     converterMode: "currencies",
+    badgeStyle: "default",
     convertAmount: (match) => match.amount / 30,
   });
 
@@ -200,6 +204,7 @@ function render(
     enabled: true,
     targetCurrency: "USD",
     converterMode: "units" as const,
+    badgeStyle: "default" as const,
     convertAmount: () => null,
   };
 
@@ -250,4 +255,24 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
 
   expectEqual(rendered, 1, "enabled current behavior rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "enabled current behavior badges");
+}
+
+{
+  const root = createRoot("<span>€100</span>");
+  render(root, "USD", () => 110, "currencies", true, "compact");
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(badge?.dataset.ehiniumBadgeStyle, "compact", "compact badge marker");
+  expectEqual(badge?.style.padding, "1px 4px", "compact badge padding");
+  expectEqual(badge?.style.fontSize, "10px", "compact badge font size");
+}
+
+{
+  const root = createRoot("<span>10 kg</span>");
+  render(root, "USD", () => null, "units", true, "minimal");
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(badge?.dataset.ehiniumBadgeStyle, "minimal", "minimal badge marker");
+  expectEqual(badge?.style.background, "transparent", "minimal badge background");
+  expectEqual(badge?.style.textDecoration, "underline dotted", "minimal badge decoration");
 }

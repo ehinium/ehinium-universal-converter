@@ -148,6 +148,7 @@ async function processConversions(): Promise<void> {
           enabled: settings.enabled,
           targetCurrency: settings.targetCurrency,
           converterMode: settings.converterMode,
+          badgeStyle: settings.badgeStyle,
           convertAmount: () => null,
         });
 
@@ -174,6 +175,7 @@ async function processConversions(): Promise<void> {
         enabled: settings.enabled,
         targetCurrency: settings.targetCurrency,
         converterMode: settings.converterMode,
+        badgeStyle: settings.badgeStyle,
         convertAmount(match) {
           return convertCurrency(
             match.amount,
@@ -209,6 +211,7 @@ function handleSettingsChange(settings: UserSettings): void {
   const enabledChanged = previousSettings?.enabled !== settings.enabled;
   const converterModeChanged =
     previousSettings?.converterMode !== settings.converterMode;
+  const badgeStyleChanged = previousSettings?.badgeStyle !== settings.badgeStyle;
   const wasDomainAllowed = domainIsAllowed(previousSettings);
   const domainAllowed = isDomainAllowed(hostname, settings);
 
@@ -218,6 +221,7 @@ function handleSettingsChange(settings: UserSettings): void {
     !targetCurrencyChanged &&
     !enabledChanged &&
     !converterModeChanged &&
+    !badgeStyleChanged &&
     wasDomainAllowed === domainAllowed
   ) {
     return;
@@ -244,7 +248,12 @@ function handleSettingsChange(settings: UserSettings): void {
     return;
   }
 
-  if (targetCurrencyChanged || converterModeChanged || !wasDomainAllowed) {
+  if (
+    targetCurrencyChanged ||
+    converterModeChanged ||
+    badgeStyleChanged ||
+    !wasDomainAllowed
+  ) {
     resetRenderedConversions(document);
   }
 

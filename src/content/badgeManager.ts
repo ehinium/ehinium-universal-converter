@@ -1,5 +1,6 @@
 import { EHINIUM_IGNORE_ATTRIBUTE } from "./domExclusions";
 import { registerHoverTarget } from "./hoverRegistry";
+import type { BadgeStyle } from "../types/settings";
 
 export type BadgeKey = {
   sourceCurrency: string;
@@ -63,11 +64,13 @@ function isMatchingBadge(element: Element, serializedKey: string): boolean {
 
 export function createBadge(
   content: string,
-  hoverContent: string
+  hoverContent: string,
+  badgeStyle: BadgeStyle = "default"
 ): HTMLElement {
   const badge = document.createElement("span");
 
   badge.setAttribute("data-ehinium-badge", "true");
+  badge.setAttribute("data-ehinium-badge-style", badgeStyle);
   badge.setAttribute("data-ehinium-converted", "true");
   badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
   badge.title = hoverContent;
@@ -89,6 +92,21 @@ export function createBadge(
   badge.style.pointerEvents = "auto";
   badge.style.position = "relative";
   badge.style.zIndex = "2147483647";
+
+  if (badgeStyle === "compact") {
+    badge.style.padding = "1px 4px";
+    badge.style.fontSize = "10px";
+    badge.style.marginLeft = "4px";
+    badge.style.marginInlineStart = "4px";
+  } else if (badgeStyle === "minimal") {
+    badge.style.padding = "0";
+    badge.style.borderRadius = "0";
+    badge.style.background = "transparent";
+    badge.style.color = "rgba(17, 24, 39, 0.68)";
+    badge.style.fontWeight = "500";
+    badge.style.textDecoration = "underline dotted";
+    badge.style.textUnderlineOffset = "2px";
+  }
 
   registerHoverTarget(badge, hoverContent);
   return badge;
