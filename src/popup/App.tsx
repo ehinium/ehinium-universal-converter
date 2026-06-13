@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fiatCurrencies } from "../data/currencies";
+import { isDomainAllowed } from "../services/domainRules";
 import { getSettings, saveSettings } from "../services/settings";
+import {
+  getActiveTabHostname,
+  setSiteAllowed,
+} from "../services/siteControls";
 import type { UserSettings } from "../types/settings";
 
 const styles = {
@@ -174,6 +179,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [currentHostname, setCurrentHostname] = useState<string | null>(null);
   const settingsRef = useRef<UserSettings | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -185,11 +191,12 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    void getSettings()
-      .then((loadedSettings) => {
+    void Promise.all([getSettings(), getActiveTabHostname()])
+      .then(([loadedSettings, hostname]) => {
         if (!cancelled) {
           settingsRef.current = loadedSettings;
           setSettings(loadedSettings);
+          setCurrentHostname(hostname);
           setWhitelistDraft(loadedSettings.whitelist.join("\n"));
           setBlacklistDraft(loadedSettings.blacklist.join("\n"));
         }
@@ -257,6 +264,24 @@ function App() {
     if (!domainsAreEqual(currentSettings[key], domains)) {
       persistSettings({ ...currentSettings, [key]: domains });
     }
+  }
+
+  function updateCurrentSite(allowed: boolean): void {
+    const currentSettings = settingsRef.current;
+
+    if (!currentSettings || !currentHostname) {
+      return;
+    }
+
+    const nextSettings = setSiteAllowed(
+      currentSettings,
+      currentHostname,
+      allowed
+    );
+
+    setWhitelistDraft(nextSettings.whitelist.join("\n"));
+    setBlacklistDraft(nextSettings.blacklist.join("\n"));
+    persistSettings(nextSettings);
   }
 
   if (isLoading) {
@@ -360,6 +385,52 @@ function App() {
             ))}
           </select>
         </label>
+      </section>
+
+      <section
+        style={{ ...styles.card, marginTop: "14px" }}
+        aria-label="Site settings"
+      >
+        <span style={styles.label}>Site settings</span>
+
+        {currentHostname ? (
+          <div style={styles.toggleRow}>
+            <div style={styles.labelGroup}>
+              <span style={styles.label}>Enable on this site</span>
+              <p style={styles.description}>{currentHostname}</p>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isDomainAllowed(currentHostname, settings)}
+              aria-label="Enable on this site"
+              onClick={() =>
+                updateCurrentSite(!isDomainAllowed(currentHostname, settings))
+              }
+              style={{
+                ...styles.switch,
+                backgroundColor: isDomainAllowed(currentHostname, settings)
+                  ? "#496cf2"
+                  : "#b7c0cf",
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  ...styles.switchKnob,
+                  transform: isDomainAllowed(currentHostname, settings)
+                    ? "translateX(21px)"
+                    : "translateX(3px)",
+                }}
+              />
+            </button>
+          </div>
+        ) : (
+          <span style={styles.description}>
+            Site controls unavailable on this page
+          </span>
+        )}
       </section>
 
       <section

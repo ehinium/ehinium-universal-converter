@@ -235,6 +235,7 @@ function handleSettingsChange(settings: UserSettings): void {
   if (!domainAllowed) {
     conversionRequested = false;
     stopObserving();
+    resetRenderedConversions(document);
 
     if (wasDomainAllowed) {
       console.log("[EUC] Domain blocked:", hostname);

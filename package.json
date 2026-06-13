@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && cross-env BUILD_TARGET=content vite build",
     "test": "npm run test:unit",
-    "test:unit": "tsx src/utils/currencyParser.test.ts && tsx src/utils/currencyConverter.test.ts && tsx src/utils/unitParser.test.ts && tsx src/utils/unitConverter.test.ts && tsx src/services/settings.test.ts && tsx src/services/domainRules.test.ts && tsx src/content/domScanner.test.ts && tsx src/content/groupedPriceDetector.test.ts && tsx src/content/domRenderer.test.ts",
+    "test:unit": "tsx src/utils/currencyParser.test.ts && tsx src/utils/currencyConverter.test.ts && tsx src/utils/unitParser.test.ts && tsx src/utils/unitConverter.test.ts && tsx src/services/settings.test.ts && tsx src/services/domainRules.test.ts && tsx src/services/siteControls.test.ts && tsx src/content/domScanner.test.ts && tsx src/content/groupedPriceDetector.test.ts && tsx src/content/domRenderer.test.ts",
     "test:rates": "tsx src/services/rates.test.ts",
     "check": "npm run test:unit && npm run build",
     "lint": "eslint .",
