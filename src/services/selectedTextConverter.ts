@@ -2,12 +2,22 @@ import type { ExchangeRates } from "../types/rates";
 import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
 import { parseCurrencies } from "../utils/currencyParser";
+import {
+  formatSourceCurrency,
+  formatSourceUnit,
+  formatUnitLabel,
+} from "../utils/displayFormatting";
 import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
 import { parseUnits } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
 
 export type SelectedTextConversionDependencies = {
   getRates: (baseCurrency: string) => Promise<ExchangeRates>;
+};
+
+export type ManualConversionResult = {
+  source: string;
+  converted: string;
 };
 
 function formatCurrency(amount: number, currency: string): string {
@@ -33,9 +43,7 @@ function formatUnit(
       ? { maximumSignificantDigits: 2 }
       : { maximumFractionDigits: 2 }
   ).format(amount);
-  const label = unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
-
-  return `${formattedAmount} ${label}`;
+  return `${formattedAmount} ${formatUnitLabel(unit)}`;
 }
 
 function getTargetUnit(match: UnitMatch, settings: UserSettings): UnitCode | null {
@@ -53,7 +61,7 @@ async function convertFirstCurrency(
   text: string,
   settings: UserSettings,
   dependencies: SelectedTextConversionDependencies
-): Promise<string | null> {
+): Promise<ManualConversionResult | null> {
   const match = parseCurrencies(text)[0];
 
   if (!match || match.currency === settings.targetCurrency) {
@@ -70,10 +78,16 @@ async function convertFirstCurrency(
 
   return converted === null || !Number.isFinite(converted)
     ? null
-    : formatCurrency(converted, settings.targetCurrency);
+    : {
+        source: formatSourceCurrency(match.amount, match.currency),
+        converted: formatCurrency(converted, settings.targetCurrency),
+      };
 }
 
-function convertFirstUnit(text: string, settings: UserSettings): string | null {
+function convertFirstUnit(
+  text: string,
+  settings: UserSettings
+): ManualConversionResult | null {
   const match = parseUnits(text)[0];
 
   if (!match) {
@@ -99,24 +113,27 @@ function convertFirstUnit(text: string, settings: UserSettings): string | null {
         ? settings.targetWeightUnit
         : settings.targetTemperatureUnit;
 
-  return formatUnit(
-    converted,
-    targetUnit,
-    exactTarget === "auto" && settings.unitSystem === "auto"
-  );
+  return {
+    source: formatSourceUnit(match.amount, match.unit),
+    converted: formatUnit(
+      converted,
+      targetUnit,
+      exactTarget === "auto" && settings.unitSystem === "auto"
+    ),
+  };
 }
 
-export async function convertSelectedText(
+export async function getManualConversion(
   text: string,
   settings: UserSettings,
   dependencies: SelectedTextConversionDependencies
-): Promise<string | null> {
+): Promise<ManualConversionResult | null> {
   if (!settings.enabled || !text.trim()) {
     return null;
   }
 
   if (settings.converterMode !== "units") {
-    let currencyResult: string | null = null;
+    let currencyResult: ManualConversionResult | null = null;
 
     try {
       currencyResult = await convertFirstCurrency(text, settings, dependencies);
@@ -132,4 +149,12 @@ export async function convertSelectedText(
   return settings.converterMode === "currencies"
     ? null
     : convertFirstUnit(text, settings);
+}
+
+export async function convertSelectedText(
+  text: string,
+  settings: UserSettings,
+  dependencies: SelectedTextConversionDependencies
+): Promise<string | null> {
+  return (await getManualConversion(text, settings, dependencies))?.converted ?? null;
 }

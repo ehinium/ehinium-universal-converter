@@ -108,8 +108,8 @@ const codePattern = createAlternation([...currencyByCode.keys()]);
 const symbolPattern = createAlternation([...symbolToCurrency.keys()]);
 const suffixSymbolPattern = createAlternation([...suffixSymbolToCurrency.keys()]);
 
-const codePrefixRegex = createPrefixRegex(codePattern, "gu");
-const codeSuffixRegex = createSuffixRegex(codePattern, "gu");
+const codePrefixRegex = createPrefixRegex(codePattern, "giu");
+const codeSuffixRegex = createSuffixRegex(codePattern, "giu");
 const symbolPrefixRegex = createPrefixRegex(symbolPattern, "gu");
 const symbolSuffixRegex = createSuffixRegex(suffixSymbolPattern, "gu");
 
@@ -190,7 +190,8 @@ function collectMatches(
   regex: RegExp,
   identifierIndex: number,
   amountIndex: number,
-  resolveCurrency: (identifier: string) => string | undefined
+  resolveCurrency: (identifier: string) => string | undefined,
+  requireFullTextForNonCanonicalIdentifier = false
 ): IndexedCurrencyMatch[] {
   const matches: IndexedCurrencyMatch[] = [];
 
@@ -199,8 +200,15 @@ function collectMatches(
     const amountText = match[amountIndex];
     const currency = resolveCurrency(identifier);
     const definition = currency ? currencyByCode.get(currency) : undefined;
+    const isCanonicalIdentifier = identifier === currency;
+    const isFullTextMatch = match[0].trim() === text.trim();
 
-    if (!definition) {
+    if (
+      !definition ||
+      (requireFullTextForNonCanonicalIdentifier &&
+        !isCanonicalIdentifier &&
+        !isFullTextMatch)
+    ) {
       continue;
     }
 
@@ -222,15 +230,17 @@ function collectMatches(
 }
 
 export function parseCurrencies(text: string): CurrencyMatch[] {
-  const resolveCode = (code: string): string | undefined =>
-    currencyByCode.has(code) ? code : undefined;
+  const resolveCode = (code: string): string | undefined => {
+    const normalizedCode = code.toUpperCase();
+    return currencyByCode.has(normalizedCode) ? normalizedCode : undefined;
+  };
   const resolveSymbol = (symbol: string): string | undefined =>
     symbolToCurrency.get(symbol);
   const resolveSuffixSymbol = (symbol: string): string | undefined =>
     suffixSymbolToCurrency.get(symbol);
   const codeMatches = [
-    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode),
-    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode),
+    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode, true),
+    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode, true),
   ];
   const symbolMatches = [
     ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol),

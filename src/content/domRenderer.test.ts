@@ -117,8 +117,25 @@ function render(
   expectEqual(badge?.textContent, "$4.63", "currency tooltip visible badge text");
   expectEqual(
     badge ? getHoverTarget(badge)?.content : null,
-    "AED 16.99 → $4.63",
+    "16.99 AED → $4.63",
     "currency tooltip content"
+  );
+}
+
+{
+  const root = createRoot("<span>10000000IRR</span>");
+  render(root, "USD", () => 23.81);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    "10,000,000 IRR → $23.81",
+    "large currency tooltip content"
+  );
+  expectEqual(
+    root.querySelector("span")?.firstChild?.textContent,
+    "10000000IRR",
+    "large currency raw page text"
   );
 }
 
@@ -566,7 +583,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "currency hover badges");
   expectEqual(
     source ? getHoverTarget(source)?.content : null,
-    "AED 16.99 → $4.63",
+    "16.99 AED → $4.63",
     "currency hover target"
   );
 
@@ -633,7 +650,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   expectEqual(rendered, 1, "currency-only hover rendered count");
   expectEqual(
     source ? getHoverTarget(source)?.content : null,
-    "EUR 100 → $110.00",
+    "100 EUR → $110.00",
     "currency-only hover target"
   );
 }

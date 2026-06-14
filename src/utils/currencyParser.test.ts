@@ -26,6 +26,7 @@ for (const falsePositive of [
   "8 series",
   "100 %",
   "Product 5%",
+  "iPhone 15",
   "12.99 $",
   "12.99 €",
   "12.99 £",
@@ -35,10 +36,19 @@ for (const falsePositive of [
 }
 
 expectCurrencies("$12.99", [{ amount: 12.99, currency: "USD" }]);
+expectCurrencies("€12.99", [{ amount: 12.99, currency: "EUR" }]);
+expectCurrencies("£12.99", [{ amount: 12.99, currency: "GBP" }]);
+expectCurrencies("¥12.99", [{ amount: 12.99, currency: "JPY" }]);
 expectCurrencies("AED24.64", [{ amount: 24.64, currency: "AED" }]);
 expectCurrencies("304.95 TL", [{ amount: 304.95, currency: "TRY" }]);
 expectCurrencies("TL 304.95", [{ amount: 304.95, currency: "TRY" }]);
 expectCurrencies("USD 1,299.99", [{ amount: 1299.99, currency: "USD" }]);
+expectCurrencies("80 eur", [{ amount: 80, currency: "EUR" }]);
+expectCurrencies("80 Eur", [{ amount: 80, currency: "EUR" }]);
+expectCurrencies("eur 80", [{ amount: 80, currency: "EUR" }]);
+expectCurrencies("usd 100", [{ amount: 100, currency: "USD" }]);
+expectCurrencies("100 aed", [{ amount: 100, currency: "AED" }]);
+expectCurrencies("10000000IRR", [{ amount: 10000000, currency: "IRR" }]);
 expectCurrencies("24,500,000 AMD", [{ amount: 24500000, currency: "AMD" }]);
 expectCurrencies("AMD 24,500,000", [{ amount: 24500000, currency: "AMD" }]);
 expectCurrencies("24,500,000 ֏", [{ amount: 24500000, currency: "AMD" }]);
@@ -49,3 +59,4 @@ expectCurrencies("500 ₴", [{ amount: 500, currency: "UAH" }]);
 expectCurrencies("12.99€", []);
 expectCurrencies("productUSD 12.99", []);
 expectCurrencies("USD 12.99model", []);
+expectCurrencies("Product eur 80", []);

@@ -22,10 +22,16 @@ function expectUnits(text: string, expected: ExpectedUnit[]): void {
 }
 
 expectUnits("10 kg", [{ amount: 10, unit: "kg", category: "weight" }]);
+expectUnits("80 KG", [{ amount: 80, unit: "kg", category: "weight" }]);
 expectUnits("10kg", [{ amount: 10, unit: "kg", category: "weight" }]);
 expectUnits("5.5 miles", [{ amount: 5.5, unit: "mi", category: "length" }]);
 expectUnits("180 cm", [{ amount: 180, unit: "cm", category: "length" }]);
+expectUnits("180 CM", [{ amount: 180, unit: "cm", category: "length" }]);
 expectUnits("32°F", [{ amount: 32, unit: "f", category: "temperature" }]);
+expectUnits("68 °F", [{ amount: 68, unit: "f", category: "temperature" }]);
+expectUnits("20 c", [{ amount: 20, unit: "c", category: "temperature" }]);
+expectUnits("20 C", [{ amount: 20, unit: "c", category: "temperature" }]);
+expectUnits("20 °c", [{ amount: 20, unit: "c", category: "temperature" }]);
 expectUnits("20 °C", [{ amount: 20, unit: "c", category: "temperature" }]);
 expectUnits("12 inches and 3 pounds", [
   { amount: 12, unit: "in", category: "length" },
@@ -38,6 +44,7 @@ for (const falsePositive of [
   "iPhone 15",
   "Rated 4.8 stars",
   "Save 20%",
+  "Product 5%",
   "$100",
   "USD 100",
   "<style>.card { margin: 10 cm; }</style>",

@@ -1,5 +1,5 @@
 import { Window } from "happy-dom";
-import { createBadge } from "./badgeManager";
+import { createBadge, serializeBadgeKey } from "./badgeManager";
 import { getHoverTarget } from "./hoverRegistry";
 
 const window = new Window();
@@ -28,6 +28,16 @@ function wait(milliseconds: number): Promise<void> {
     setTimeout(resolve, milliseconds);
   });
 }
+
+expectEqual(
+  serializeBadgeKey({
+    amount: 10000000,
+    sourceCurrency: "IRR",
+    targetCurrency: "USD",
+  }),
+  "10000000|IRR|USD",
+  "large amount badge identity"
+);
 
 {
   let copiedText: string | null = null;

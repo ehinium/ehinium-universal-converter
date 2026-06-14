@@ -2,6 +2,11 @@ import {
   parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
+import {
+  formatSourceCurrency,
+  formatSourceUnit,
+  formatUnitLabel,
+} from "../utils/displayFormatting";
 import type {
   BadgeStyle,
   BadgeVisibility,
@@ -94,24 +99,6 @@ function formatAmount(amount: number, currency: string): string {
   } catch {
     return `${currency} ${amount.toFixed(2)}`;
   }
-}
-
-function formatReadableNumber(amount: number): string {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 6,
-  }).format(amount);
-}
-
-function formatUnitLabel(unit: UnitCode): string {
-  return unit === "c" ? "°C" : unit === "f" ? "°F" : unit;
-}
-
-function formatSourceCurrency(match: CurrencyMatch): string {
-  return `${match.currency} ${formatReadableNumber(match.amount)}`;
-}
-
-function formatSourceUnit(match: UnitMatch): string {
-  return `${formatReadableNumber(match.amount)} ${formatUnitLabel(match.unit)}`;
 }
 
 function formatTooltip(source: string, converted: string): string {
@@ -362,7 +349,7 @@ function renderUnitConversions(
 
       const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmount);
       const formattedTooltip = formatTooltip(
-        formatSourceUnit(match),
+        formatSourceUnit(match.amount, match.unit),
         formattedAmount
       );
 
@@ -509,7 +496,7 @@ export function renderConversions(
       options.targetCurrency
     );
     const formattedTooltip = formatTooltip(
-      formatSourceCurrency(currencyMatch),
+      formatSourceCurrency(currencyMatch.amount, currencyMatch.currency),
       formattedAmount
     );
 
@@ -660,7 +647,7 @@ export function renderConversions(
         options.targetCurrency
       );
       const formattedTooltip = formatTooltip(
-        formatSourceCurrency(match),
+        formatSourceCurrency(match.amount, match.currency),
         formattedAmount
       );
 

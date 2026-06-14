@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fiatCurrencies } from "../data/currencies";
 import { isDomainAllowed } from "../services/domainRules";
+import { getExchangeRates } from "../services/rates";
+import {
+  getManualConversion,
+  type ManualConversionResult,
+} from "../services/selectedTextConverter";
 import { getSettings, saveSettings } from "../services/settings";
 import {
   getActiveTabHostname,
   setSiteAllowed,
 } from "../services/siteControls";
 import type { UserSettings } from "../types/settings";
+import {
+  copyManualConversion,
+  formatManualConversionInput,
+} from "./manualConversion";
+
+const MANUAL_CONVERSION_DEBOUNCE_MS = 250;
+const COPY_FEEDBACK_DURATION_MS = 900;
 
 const styles = {
   page: {
@@ -120,6 +132,47 @@ const styles = {
     font: "inherit",
     fontSize: "13px",
   },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "10px 11px",
+    border: "1px solid #cdd6e6",
+    borderRadius: "9px",
+    outline: "none",
+    color: "#25324a",
+    backgroundColor: "#ffffff",
+    font: "inherit",
+    fontSize: "13px",
+  },
+  manualResult: {
+    display: "grid",
+    gap: "5px",
+    padding: "12px",
+    borderRadius: "10px",
+    backgroundColor: "rgba(73, 108, 242, 0.08)",
+  },
+  manualSource: {
+    color: "#6b7890",
+    fontSize: "12px",
+  },
+  manualConverted: {
+    color: "#172033",
+    fontSize: "20px",
+    fontWeight: 750,
+  },
+  copyButton: {
+    justifySelf: "start",
+    marginTop: "4px",
+    padding: "6px 10px",
+    border: "1px solid rgba(73, 108, 242, 0.32)",
+    borderRadius: "7px",
+    color: "#3452c6",
+    backgroundColor: "#ffffff",
+    font: "inherit",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
   textarea: {
     width: "100%",
     minHeight: "82px",
@@ -180,7 +233,13 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [currentHostname, setCurrentHostname] = useState<string | null>(null);
+  const [manualInput, setManualInput] = useState("");
+  const [manualResult, setManualResult] =
+    useState<ManualConversionResult | null>(null);
+  const [isManualConverting, setIsManualConverting] = useState(false);
+  const [copyLabel, setCopyLabel] = useState("Copy");
   const settingsRef = useRef<UserSettings | null>(null);
+  const manualInputRef = useRef<HTMLInputElement | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const sortedCurrencies = useMemo(
@@ -217,9 +276,50 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const value = manualInput.trim();
+
+    if (!settings || !value || !settings.enabled) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setIsManualConverting(true);
+      void getManualConversion(value, settings, {
+        async getRates(baseCurrency) {
+          return (await getExchangeRates(baseCurrency)).rates;
+        },
+      })
+        .then((result) => {
+          if (!cancelled) {
+            setManualResult(result);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setManualResult(null);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsManualConverting(false);
+          }
+        });
+    }, MANUAL_CONVERSION_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [manualInput, settings]);
+
   function persistSettings(nextSettings: UserSettings): void {
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
+    setManualResult(null);
+    setCopyLabel("Copy");
+    setIsManualConverting(Boolean(manualInput.trim()) && nextSettings.enabled);
     setError(null);
     setIsSaving(true);
 
@@ -284,6 +384,48 @@ function App() {
     persistSettings(nextSettings);
   }
 
+  function copyManualResult(): void {
+    if (!manualResult) {
+      return;
+    }
+
+    void copyManualConversion(manualResult.converted).then((copied) => {
+      if (!copied) {
+        return;
+      }
+
+      setCopyLabel("Copied");
+      setTimeout(() => {
+        setCopyLabel("Copy");
+      }, COPY_FEEDBACK_DURATION_MS);
+    });
+  }
+
+  function updateManualInput(value: string): void {
+    setManualInput(value);
+    setManualResult(null);
+    setCopyLabel("Copy");
+    setIsManualConverting(Boolean(value.trim()) && Boolean(settings?.enabled));
+  }
+
+  function formatManualInput(value: string): void {
+    const formatted = formatManualConversionInput(value);
+
+    if (formatted !== value) {
+      updateManualInput(formatted);
+    }
+  }
+
+  function formatPastedManualInput(): void {
+    setTimeout(() => {
+      const value = manualInputRef.current?.value;
+
+      if (value !== undefined) {
+        formatManualInput(value);
+      }
+    }, 0);
+  }
+
   if (isLoading) {
     return (
       <main style={styles.page}>
@@ -314,7 +456,46 @@ function App() {
         <h1 style={styles.title}>Ehinium Universal Converter</h1>
       </header>
 
-      <section style={styles.card} aria-label="Conversion settings">
+      <section style={styles.card} aria-label="Manual conversion">
+        <span style={styles.label}>Manual conversion</span>
+
+        <input
+          ref={manualInputRef}
+          type="text"
+          value={manualInput}
+          onChange={(event) => updateManualInput(event.target.value)}
+          onBlur={(event) => formatManualInput(event.currentTarget.value)}
+          onPaste={formatPastedManualInput}
+          placeholder="Enter value, e.g. 100 EUR or 180 cm"
+          aria-label="Manual conversion value"
+          style={styles.input}
+        />
+
+        {!settings.enabled ? (
+          <span style={styles.description}>Conversions are disabled</span>
+        ) : manualResult ? (
+          <div style={styles.manualResult} aria-live="polite">
+            <span style={styles.manualSource}>{manualResult.source}</span>
+            <span style={styles.manualConverted}>{manualResult.converted}</span>
+            <button
+              type="button"
+              onClick={copyManualResult}
+              style={styles.copyButton}
+            >
+              {copyLabel}
+            </button>
+          </div>
+        ) : manualInput.trim() && !isManualConverting ? (
+          <span style={styles.description}>No convertible value found</span>
+        ) : isManualConverting ? (
+          <span style={styles.description}>Converting...</span>
+        ) : null}
+      </section>
+
+      <section
+        style={{ ...styles.card, marginTop: "14px" }}
+        aria-label="Conversion settings"
+      >
         <div style={styles.toggleRow}>
           <div style={styles.labelGroup}>
             <span style={styles.label}>Enable conversions</span>
