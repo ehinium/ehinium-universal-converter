@@ -8,22 +8,23 @@ import type {
   UnitSystem,
   UserSettings,
 } from "../types/settings";
+import { fiatCurrencies } from "../data/currencies";
 import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
+const supportedCurrencyCodes = new Set(
+  fiatCurrencies.map((currency) => currency.code)
+);
 
-function mergeSettings(value: unknown): UserSettings {
+export function normalizeSettings(value: unknown): UserSettings {
   if (typeof value !== "object" || value === null) {
-    return { ...defaultSettings };
+    return cloneDefaultSettings();
   }
 
   const stored = value as Record<string, unknown>;
 
   return {
-    targetCurrency:
-      typeof stored.targetCurrency === "string"
-        ? stored.targetCurrency
-        : defaultSettings.targetCurrency,
+    targetCurrency: normalizeTargetCurrency(stored.targetCurrency),
     enabled:
       typeof stored.enabled === "boolean"
         ? stored.enabled
@@ -49,13 +50,28 @@ function mergeSettings(value: unknown): UserSettings {
     targetTemperatureUnit: isTargetTemperatureUnit(stored.targetTemperatureUnit)
       ? stored.targetTemperatureUnit
       : defaultSettings.targetTemperatureUnit,
-    whitelist: isStringArray(stored.whitelist)
-      ? stored.whitelist
-      : defaultSettings.whitelist,
-    blacklist: isStringArray(stored.blacklist)
-      ? stored.blacklist
-      : defaultSettings.blacklist,
+    whitelist: normalizeDomainList(stored.whitelist, defaultSettings.whitelist),
+    blacklist: normalizeDomainList(stored.blacklist, defaultSettings.blacklist),
   };
+}
+
+function cloneDefaultSettings(): UserSettings {
+  return {
+    ...defaultSettings,
+    whitelist: [...defaultSettings.whitelist],
+    blacklist: [...defaultSettings.blacklist],
+  };
+}
+
+function normalizeTargetCurrency(value: unknown): string {
+  if (typeof value !== "string") {
+    return defaultSettings.targetCurrency;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  return supportedCurrencyCodes.has(normalized)
+    ? normalized
+    : defaultSettings.targetCurrency;
 }
 
 function isTargetLengthUnit(value: unknown): value is TargetLengthUnit {
@@ -105,14 +121,24 @@ function isConverterMode(value: unknown): value is ConverterMode {
   return value === "currencies" || value === "units" || value === "everything";
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function normalizeDomainList(
+  value: unknown,
+  fallback: readonly string[]
+): string[] {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+
+  return value.filter(
+    (item): item is string =>
+      typeof item === "string" && item.trim().length > 0
+  );
 }
 
 export async function getSettings(): Promise<UserSettings> {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
 
-  return mergeSettings(result[STORAGE_KEY]);
+  return normalizeSettings(result[STORAGE_KEY]);
 }
 
 export async function saveSettings(
@@ -133,7 +159,7 @@ export function subscribeToSettingsChanges(
     const settingsChange = changes[STORAGE_KEY];
 
     if (areaName === "sync" && settingsChange) {
-      callback(mergeSettings(settingsChange.newValue));
+      callback(normalizeSettings(settingsChange.newValue));
     }
   };
 

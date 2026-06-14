@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fiatCurrencies } from "../data/currencies";
 import { isDomainAllowed } from "../services/domainRules";
-import { getExchangeRates } from "../services/rates";
+import {
+  getExchangeRates,
+  getExchangeRateStatus,
+  refreshExchangeRates,
+  type ExchangeRateStatus,
+} from "../services/rates";
 import {
   getManualConversion,
   type ManualConversionResult,
@@ -16,6 +21,7 @@ import {
   copyManualConversion,
   formatManualConversionInput,
 } from "./manualConversion";
+import { formatRateStatus, refreshRateStatus } from "./rateStatus";
 
 const MANUAL_CONVERSION_DEBOUNCE_MS = 250;
 const COPY_FEEDBACK_DURATION_MS = 900;
@@ -173,6 +179,29 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
   },
+  rateStatus: {
+    display: "grid",
+    gap: "3px",
+    padding: "10px",
+    borderRadius: "9px",
+    color: "#6b7890",
+    backgroundColor: "rgba(73, 108, 242, 0.06)",
+    fontSize: "11px",
+    lineHeight: 1.4,
+  },
+  refreshButton: {
+    justifySelf: "start",
+    marginTop: "4px",
+    padding: "6px 10px",
+    border: "1px solid rgba(73, 108, 242, 0.32)",
+    borderRadius: "7px",
+    color: "#3452c6",
+    backgroundColor: "#ffffff",
+    font: "inherit",
+    fontSize: "11px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
   textarea: {
     width: "100%",
     minHeight: "82px",
@@ -238,6 +267,12 @@ function App() {
     useState<ManualConversionResult | null>(null);
   const [isManualConverting, setIsManualConverting] = useState(false);
   const [copyLabel, setCopyLabel] = useState("Copy");
+  const [rateStatus, setRateStatus] = useState<ExchangeRateStatus>({
+    response: null,
+    fetchedAt: null,
+    lastErrorAt: null,
+  });
+  const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const settingsRef = useRef<UserSettings | null>(null);
   const manualInputRef = useRef<HTMLInputElement | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -277,6 +312,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (settings) {
+      setRateStatus(getExchangeRateStatus(settings.targetCurrency));
+    }
+  }, [settings?.targetCurrency]);
+
+  useEffect(() => {
     let cancelled = false;
     const value = manualInput.trim();
 
@@ -288,7 +329,13 @@ function App() {
       setIsManualConverting(true);
       void getManualConversion(value, settings, {
         async getRates(baseCurrency) {
-          return (await getExchangeRates(baseCurrency)).rates;
+          try {
+            return (await getExchangeRates(baseCurrency)).rates;
+          } finally {
+            if (!cancelled) {
+              setRateStatus(getExchangeRateStatus(baseCurrency));
+            }
+          }
         },
       })
         .then((result) => {
@@ -426,6 +473,23 @@ function App() {
     }, 0);
   }
 
+  function refreshRates(): void {
+    const baseCurrency = settings?.targetCurrency;
+
+    if (!baseCurrency) {
+      return;
+    }
+
+    setIsRefreshingRates(true);
+
+    void refreshRateStatus(baseCurrency, refreshExchangeRates)
+      .catch(() => undefined)
+      .finally(() => {
+        setRateStatus(getExchangeRateStatus(baseCurrency));
+        setIsRefreshingRates(false);
+      });
+  }
+
   if (isLoading) {
     return (
       <main style={styles.page}>
@@ -546,6 +610,24 @@ function App() {
             <option value="everything">Everything</option>
           </select>
         </label>
+
+        <div style={styles.rateStatus} aria-live="polite">
+          {formatRateStatus(rateStatus).map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+          <button
+            type="button"
+            onClick={refreshRates}
+            disabled={isRefreshingRates}
+            style={{
+              ...styles.refreshButton,
+              cursor: isRefreshingRates ? "wait" : "pointer",
+              opacity: isRefreshingRates ? 0.65 : 1,
+            }}
+          >
+            {isRefreshingRates ? "Refreshing rates..." : "Refresh rates"}
+          </button>
+        </div>
 
         <label style={styles.field}>
           <span style={styles.label}>Target currency</span>
