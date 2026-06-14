@@ -13,6 +13,10 @@ import {
 } from "../services/selectedTextConverter";
 import { getSettings, saveSettings } from "../services/settings";
 import {
+  formatSettingsApplyStatus,
+  notifyActiveTabSettingsChanged,
+} from "../services/settingsApply";
+import {
   getActiveTabHostname,
   setSiteAllowed,
 } from "../services/siteControls";
@@ -273,6 +277,7 @@ function App() {
     lastErrorAt: null,
   });
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
+  const [showReloadNotice, setShowReloadNotice] = useState(false);
   const settingsRef = useRef<UserSettings | null>(null);
   const manualInputRef = useRef<HTMLInputElement | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -377,8 +382,10 @@ function App() {
     saveQueueRef.current = saveOperation;
 
     void saveOperation
-      .then(() => {
+      .then(async () => {
         setError(null);
+        const applied = await notifyActiveTabSettingsChanged();
+        setShowReloadNotice(!applied);
       })
       .catch((saveError: unknown) => {
         setError(getErrorMessage(saveError));
@@ -878,7 +885,7 @@ function App() {
         </p>
       ) : (
         <p style={styles.status} role="status">
-          {isSaving ? "Saving settings..." : "Settings saved automatically."}
+          {formatSettingsApplyStatus(isSaving, showReloadNotice)}
         </p>
       )}
     </main>

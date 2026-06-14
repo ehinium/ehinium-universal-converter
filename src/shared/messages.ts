@@ -11,7 +11,12 @@ export type ShowManualConversionMessage = {
   formatted: string;
 };
 
+export type SettingsChangedMessage = {
+  type: "settings:changed";
+};
+
 export type ExtensionMessage =
   | GetSettingsMessage
   | PingMessage
-  | ShowManualConversionMessage;
+  | ShowManualConversionMessage
+  | SettingsChangedMessage;

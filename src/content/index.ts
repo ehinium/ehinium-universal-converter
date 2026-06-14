@@ -22,6 +22,7 @@ import {
 import { getClosestHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
 import { hideTooltip, showTooltip } from "./tooltip";
+import { refreshContentSettings } from "./settingsRefresh";
 
 declare global {
   interface Window {
@@ -38,7 +39,7 @@ let conversionRequested = false;
 let settingsVersion = 0;
 let stopObserver: (() => void) | null = null;
 let hoverListenersRegistered = false;
-let manualConversionListenerRegistered = false;
+let messageListenerRegistered = false;
 
 const hostname = window.location.hostname;
 
@@ -173,8 +174,34 @@ function showManualConversionToast(formatted: string): void {
   }, 1800);
 }
 
-function registerManualConversionListener(): void {
-  if (manualConversionListenerRegistered) {
+async function applySettingsFromMessage(): Promise<void> {
+  await refreshContentSettings({
+    clear() {
+      settingsVersion++;
+      conversionRequested = false;
+      stopObserving();
+      resetRenderedConversions(document);
+      hideTooltip();
+    },
+    load: getSettings,
+    apply(settings) {
+      currentSettings = settings;
+    },
+    async rescan() {
+      if (!currentSettings?.enabled || !domainIsAllowed(currentSettings)) {
+        return;
+      }
+
+      registerHoverListeners();
+      conversionRequested = true;
+      await processConversions();
+      startObserver();
+    },
+  });
+}
+
+function registerMessageListener(): void {
+  if (messageListenerRegistered) {
     return;
   }
 
@@ -182,8 +209,17 @@ function registerManualConversionListener(): void {
     if (
       typeof message !== "object" ||
       message === null ||
-      (message as Partial<ExtensionMessage>).type !== "SHOW_MANUAL_CONVERSION"
+      !("type" in message)
     ) {
+      return false;
+    }
+
+    if ((message as Partial<ExtensionMessage>).type === "settings:changed") {
+      void applySettingsFromMessage().catch(logDebugError);
+      return false;
+    }
+
+    if ((message as Partial<ExtensionMessage>).type !== "SHOW_MANUAL_CONVERSION") {
       return false;
     }
 
@@ -203,7 +239,7 @@ function registerManualConversionListener(): void {
     return false;
   });
 
-  manualConversionListenerRegistered = true;
+  messageListenerRegistered = true;
 }
 
 async function processConversions(): Promise<void> {
@@ -371,7 +407,7 @@ function handleSettingsChange(settings: UserSettings): void {
 
 async function run(): Promise<void> {
   exposeDebugHelper();
-  registerManualConversionListener();
+  registerMessageListener();
   console.log("[EUC] Content script loaded");
 
   currentSettings = await getSettings();
