@@ -41,3 +41,13 @@ Fallback:
 ## Status
 
 Early development.
+
+## License
+
+This project is licensed under the Elastic License 2.0.
+
+You may use, copy, modify, and redistribute the software subject to the
+license terms. You may not remove, disable, or circumvent the software's
+license-key functionality or protected premium-feature controls.
+
+This project is source-available and is not OSI-approved open-source software.
