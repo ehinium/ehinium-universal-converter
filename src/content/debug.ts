@@ -11,6 +11,11 @@ export type DebugEvent = {
     | "render:badge"
     | "render:unit-badge"
     | "render:hover-conversion"
+    | "scan:scheduled"
+    | "scan:start"
+    | "scan:end"
+    | "scan:skipped"
+    | "scan:rescheduled"
     | "error";
   sourceCurrency?: string;
   targetCurrency?: string;
@@ -20,6 +25,8 @@ export type DebugEvent = {
   formatted?: string;
   reason?: string;
   text?: string;
+  scannedNodeCount?: number;
+  duration?: number;
 };
 
 const DEBUG_STORAGE_KEY = "ehinium-debug";

@@ -1,21 +1,70 @@
 import { isInsideExcludedContent } from "./domExclusions";
+import { isHiddenOrDisconnectedRoot } from "./domScanner";
 import { isProcessed } from "./processedNodes";
 
-const DEBOUNCE_DELAY_MS = 500;
+const EUC_OWNED_SELECTOR = [
+  '[data-ehinium-badge="true"]',
+  "[data-ehinium-tooltip]",
+  "[data-ehinium-converted]",
+  "[data-ehinium-price-key]",
+  "[data-ehinium-price-group]",
+  '[data-ehinium-ignore="true"]',
+].join(", ");
 
 let stopActiveObserver: (() => void) | null = null;
 
+function isEucOwnedNode(node: Node): boolean {
+  if (node instanceof Element) {
+    return node.matches(EUC_OWNED_SELECTOR) || node.closest(EUC_OWNED_SELECTOR) !== null;
+  }
+
+  return node.parentElement?.closest(EUC_OWNED_SELECTOR) !== null;
+}
+
+function getMutationRoot(mutation: MutationRecord): Node | null {
+  if (isEucOwnedNode(mutation.target) || isInsideExcludedContent(mutation.target)) {
+    return null;
+  }
+
+  if (mutation.type === "characterData") {
+    return mutation.target.parentElement;
+  }
+
+  for (const node of mutation.addedNodes) {
+    if (isRelevantNode(node)) {
+      return node;
+    }
+  }
+
+  return null;
+}
+
 function isRelevantNode(node: Node): boolean {
   return (
+    !isEucOwnedNode(node) &&
     !isInsideExcludedContent(node) &&
+    !isHiddenOrDisconnectedRoot(node) &&
     !(node instanceof Text && isProcessed(node))
   );
 }
 
-export function observeDomChanges(callback: () => void): () => void {
+function collectMutationRoots(mutations: readonly MutationRecord[]): Node[] {
+  const roots: Node[] = [];
+
+  for (const mutation of mutations) {
+    const root = getMutationRoot(mutation);
+
+    if (root && !roots.includes(root)) {
+      roots.push(root);
+    }
+  }
+
+  return roots;
+}
+
+export function observeDomChanges(callback: (roots: Node[]) => void): () => void {
   stopActiveObserver?.();
 
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
   const observer = new MutationObserver((mutations) => {
@@ -23,32 +72,17 @@ export function observeDomChanges(callback: () => void): () => void {
       return;
     }
 
-    const hasRelevantMutation = mutations.some(
-      (mutation) =>
-        !isInsideExcludedContent(mutation.target) &&
-        [...mutation.addedNodes, ...mutation.removedNodes].some(
-          isRelevantNode
-        )
-    );
+    const roots = collectMutationRoots(mutations);
 
-    if (!hasRelevantMutation) {
+    if (roots.length === 0) {
       return;
     }
 
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-
-      if (!stopped) {
-        callback();
-      }
-    }, DEBOUNCE_DELAY_MS);
+    callback(roots);
   });
 
   observer.observe(document, {
+    characterData: true,
     childList: true,
     subtree: true,
   });
@@ -60,11 +94,6 @@ export function observeDomChanges(callback: () => void): () => void {
 
     stopped = true;
     observer.disconnect();
-
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
 
     if (stopActiveObserver === stop) {
       stopActiveObserver = null;

@@ -11,10 +11,15 @@ type IndexedCurrencyMatch = CurrencyMatch & {
 };
 
 const digitPattern = "[0-9٠-٩۰-۹]";
+const groupingSeparatorPattern = "[ ,.\\u00a0\\u202f\\u2009'’٬]";
+const decimalSeparatorPattern = "[.,٫]";
 const amountPattern =
-  `[+-]?(?:${digitPattern}{1,3}(?:[,.٬]${digitPattern}{3})+|${digitPattern}+)` +
-  `(?:[.,٫]${digitPattern}+)?`;
-const optionalSpacePattern = "[\\s\\u00a0\\u202f]*";
+  `[+-]?(?:${digitPattern}{1,3}(?:${groupingSeparatorPattern}${digitPattern}{3})+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}{1,2})?|${digitPattern}+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}+)?)`;
+const optionalSpacePattern = "[\\s\\u00a0\\u202f\\u2009]*";
+const numericStartBoundaryPattern =
+  `(?<![\\p{L}\\p{N}_-])(?<!${digitPattern}${groupingSeparatorPattern})`;
 
 const currencyByCode = new Map(
   fiatCurrencies.map((currency) => [currency.code, currency])
@@ -128,14 +133,14 @@ function createPrefixRegex(identifierPattern: string, flags: string): RegExp {
   return new RegExp(
     `(?<![\\p{L}\\p{N}_-])` +
       `(${identifierPattern})${optionalSpacePattern}(${amountPattern})` +
-      `(?![\\p{L}\\p{N}_-]|[.,٫٬]${digitPattern})`,
+      `(?![\\p{L}\\p{N}_-]|${decimalSeparatorPattern}${digitPattern})`,
     flags
   );
 }
 
 function createSuffixRegex(identifierPattern: string, flags: string): RegExp {
   return new RegExp(
-    `(?<![\\p{L}\\p{N}_-])` +
+    numericStartBoundaryPattern +
       `(${amountPattern})${optionalSpacePattern}(${identifierPattern})` +
       `(?![\\p{L}\\p{N}_-])`,
     flags
@@ -150,12 +155,12 @@ function normalizeDigits(value: string): string {
 
 function parseAmount(value: string, decimalDigits: number): number | null {
   let normalized = normalizeDigits(value)
-    .replace(/[\s\u00a0\u202f]/g, "")
     .replace(/٬/g, ",")
     .replace(/٫/g, ".");
 
   const sign = normalized.startsWith("-") ? -1 : 1;
   normalized = normalized.replace(/^[+-]/, "");
+  normalized = normalized.replace(/[\u0020\u00a0\u202f\u2009'’]/g, "");
 
   const lastComma = normalized.lastIndexOf(",");
   const lastDot = normalized.lastIndexOf(".");

@@ -14,7 +14,6 @@ import {
   isDebugEnabled,
   type DebugEvent,
 } from "./debug";
-import { getTextNodes } from "./domScanner";
 import {
   renderConversions,
   resetRenderedConversions,
@@ -23,6 +22,11 @@ import { getClosestHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
 import { hideTooltip, showTooltip } from "./tooltip";
 import { refreshContentSettings } from "./settingsRefresh";
+import {
+  createScanScheduler,
+  type ScanRequest,
+} from "./scanScheduler";
+import { collectTextNodesForScan } from "./scanRoots";
 
 declare global {
   interface Window {
@@ -34,14 +38,13 @@ declare global {
 }
 
 let currentSettings: UserSettings | null = null;
-let isProcessing = false;
-let conversionRequested = false;
 let settingsVersion = 0;
 let stopObserver: (() => void) | null = null;
 let hoverListenersRegistered = false;
 let messageListenerRegistered = false;
 
 const hostname = window.location.hostname;
+const SCAN_DEBOUNCE_DELAY_MS = 125;
 
 function getErrorReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -85,9 +88,12 @@ function startObserver(): void {
     return;
   }
 
-  stopObserver = observeDomChanges(() => {
+  stopObserver = observeDomChanges((roots) => {
     if (currentSettings?.enabled && domainIsAllowed(currentSettings)) {
-      requestConversion();
+      scanScheduler.schedule({
+        reason: "mutation",
+        roots,
+      });
     }
   });
 }
@@ -178,7 +184,7 @@ async function applySettingsFromMessage(): Promise<void> {
   await refreshContentSettings({
     clear() {
       settingsVersion++;
-      conversionRequested = false;
+      scanScheduler.cancel();
       stopObserving();
       resetRenderedConversions(document);
       hideTooltip();
@@ -193,8 +199,10 @@ async function applySettingsFromMessage(): Promise<void> {
       }
 
       registerHoverListeners();
-      conversionRequested = true;
-      await processConversions();
+      await scanScheduler.flush({
+        reason: "settings",
+        roots: null,
+      });
       startObserver();
     },
   });
@@ -242,100 +250,113 @@ function registerMessageListener(): void {
   messageListenerRegistered = true;
 }
 
-async function processConversions(): Promise<void> {
-  if (isProcessing) {
-    return;
-  }
-
-  isProcessing = true;
-
-  try {
-    while (conversionRequested) {
-      conversionRequested = false;
-
-      const settings = currentSettings;
-      const version = settingsVersion;
-
-      if (!settings?.enabled || !domainIsAllowed(settings)) {
-        continue;
-      }
-
-      if (settings.converterMode === "units") {
-        const renderedCount = renderConversions(getTextNodes(document.body), {
-          enabled: settings.enabled,
-          targetCurrency: settings.targetCurrency,
-          converterMode: settings.converterMode,
-          badgeStyle: settings.badgeStyle,
-          badgeVisibility: settings.badgeVisibility,
-          unitSystem: settings.unitSystem,
-          targetLengthUnit: settings.targetLengthUnit,
-          targetWeightUnit: settings.targetWeightUnit,
-          targetTemperatureUnit: settings.targetTemperatureUnit,
-          convertAmount: () => null,
-        });
-
-        if (renderedCount > 0) {
-          console.log("[EUC] Conversions rendered:", renderedCount);
-        }
-
-        continue;
-      }
-
-      const ratesData = await getExchangeRates(settings.targetCurrency);
-
-      if (
-        version !== settingsVersion ||
-        !currentSettings?.enabled ||
-        !domainIsAllowed(currentSettings) ||
-        currentSettings.targetCurrency !== settings.targetCurrency ||
-        currentSettings.converterMode !== settings.converterMode ||
-        currentSettings.badgeStyle !== settings.badgeStyle ||
-        currentSettings.badgeVisibility !== settings.badgeVisibility ||
-        currentSettings.unitSystem !== settings.unitSystem ||
-        currentSettings.targetLengthUnit !== settings.targetLengthUnit ||
-        currentSettings.targetWeightUnit !== settings.targetWeightUnit ||
-        currentSettings.targetTemperatureUnit !== settings.targetTemperatureUnit
-      ) {
-        continue;
-      }
-
-      const renderedCount = renderConversions(getTextNodes(document.body), {
-        enabled: settings.enabled,
-        targetCurrency: settings.targetCurrency,
-        converterMode: settings.converterMode,
-        badgeStyle: settings.badgeStyle,
-        badgeVisibility: settings.badgeVisibility,
-        unitSystem: settings.unitSystem,
-        targetLengthUnit: settings.targetLengthUnit,
-        targetWeightUnit: settings.targetWeightUnit,
-        targetTemperatureUnit: settings.targetTemperatureUnit,
-        convertAmount(match) {
-          return convertCurrency(
-            match.amount,
-            match.currency,
-            settings.targetCurrency,
-            ratesData.rates
-          );
-        },
-      });
-
-      if (renderedCount > 0) {
-        console.log("[EUC] Conversions rendered:", renderedCount);
-      }
-    }
-  } finally {
-    isProcessing = false;
-
-    if (conversionRequested) {
-      void processConversions().catch(logDebugError);
-    }
-  }
+function settingsChangedDuringScan(
+  settings: UserSettings,
+  version: number
+): boolean {
+  return (
+    version !== settingsVersion ||
+    !currentSettings?.enabled ||
+    !domainIsAllowed(currentSettings) ||
+    currentSettings.targetCurrency !== settings.targetCurrency ||
+    currentSettings.converterMode !== settings.converterMode ||
+    currentSettings.badgeStyle !== settings.badgeStyle ||
+    currentSettings.badgeVisibility !== settings.badgeVisibility ||
+    currentSettings.unitSystem !== settings.unitSystem ||
+    currentSettings.targetLengthUnit !== settings.targetLengthUnit ||
+    currentSettings.targetWeightUnit !== settings.targetWeightUnit ||
+    currentSettings.targetTemperatureUnit !== settings.targetTemperatureUnit
+  );
 }
 
-function requestConversion(): void {
-  conversionRequested = true;
-  void processConversions().catch(logDebugError);
+async function scanConversions(request: ScanRequest): Promise<number> {
+  const settings = currentSettings;
+  const version = settingsVersion;
+
+  if (!settings?.enabled || !domainIsAllowed(settings)) {
+    debugLog({
+      type: "scan:skipped",
+      reason: "Conversions disabled or domain blocked",
+    });
+    return 0;
+  }
+
+  const roots = request.roots ?? [document.body];
+  const textNodes = await collectTextNodesForScan(roots);
+
+  if (textNodes.length === 0) {
+    debugLog({
+      type: "scan:skipped",
+      reason: "No eligible text nodes",
+      scannedNodeCount: 0,
+    });
+    return 0;
+  }
+
+  if (settings.converterMode === "units") {
+    const renderedCount = renderConversions(textNodes, {
+      enabled: settings.enabled,
+      targetCurrency: settings.targetCurrency,
+      converterMode: settings.converterMode,
+      badgeStyle: settings.badgeStyle,
+      badgeVisibility: settings.badgeVisibility,
+      unitSystem: settings.unitSystem,
+      targetLengthUnit: settings.targetLengthUnit,
+      targetWeightUnit: settings.targetWeightUnit,
+      targetTemperatureUnit: settings.targetTemperatureUnit,
+      convertAmount: () => null,
+    });
+
+    if (renderedCount > 0) {
+      console.log("[EUC] Conversions rendered:", renderedCount);
+    }
+
+    return textNodes.length;
+  }
+
+  const ratesData = await getExchangeRates(settings.targetCurrency);
+
+  if (settingsChangedDuringScan(settings, version)) {
+    debugLog({
+      type: "scan:skipped",
+      reason: "Settings changed before render",
+      scannedNodeCount: textNodes.length,
+    });
+    return textNodes.length;
+  }
+
+  const renderedCount = renderConversions(textNodes, {
+    enabled: settings.enabled,
+    targetCurrency: settings.targetCurrency,
+    converterMode: settings.converterMode,
+    badgeStyle: settings.badgeStyle,
+    badgeVisibility: settings.badgeVisibility,
+    unitSystem: settings.unitSystem,
+    targetLengthUnit: settings.targetLengthUnit,
+    targetWeightUnit: settings.targetWeightUnit,
+    targetTemperatureUnit: settings.targetTemperatureUnit,
+    convertAmount(match) {
+      return convertCurrency(
+        match.amount,
+        match.currency,
+        settings.targetCurrency,
+        ratesData.rates
+      );
+    },
+  });
+
+  if (renderedCount > 0) {
+    console.log("[EUC] Conversions rendered:", renderedCount);
+  }
+
+  return textNodes.length;
 }
+
+const scanScheduler = createScanScheduler({
+  delayMs: SCAN_DEBOUNCE_DELAY_MS,
+  scan: scanConversions,
+  debugLog,
+});
 
 function handleSettingsChange(settings: UserSettings): void {
   const previousSettings = currentSettings;
@@ -372,14 +393,14 @@ function handleSettingsChange(settings: UserSettings): void {
   settingsVersion++;
 
   if (!settings.enabled) {
-    conversionRequested = false;
+    scanScheduler.cancel();
     stopObserving();
     resetRenderedConversions(document);
     return;
   }
 
   if (!domainAllowed) {
-    conversionRequested = false;
+    scanScheduler.cancel();
     stopObserving();
     resetRenderedConversions(document);
 
@@ -402,7 +423,10 @@ function handleSettingsChange(settings: UserSettings): void {
   }
 
   startObserver();
-  requestConversion();
+  scanScheduler.schedule({
+    reason: "settings",
+    roots: null,
+  });
 }
 
 async function run(): Promise<void> {
@@ -419,10 +443,12 @@ async function run(): Promise<void> {
   }
 
   registerHoverListeners();
-  conversionRequested = true;
 
   try {
-    await processConversions();
+    await scanScheduler.flush({
+      reason: "initial",
+      roots: null,
+    });
   } finally {
     startObserver();
   }

@@ -8,11 +8,51 @@ const EXCLUDED_TEXT_NODE_SELECTOR = [
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
+  "[data-ehinium-tooltip]",
 ].join(", ");
 
-export function getTextNodes(root: Node): Text[] {
+export type TextNodeScanOptions = {
+  maxNodes?: number;
+};
+
+export function isHiddenOrDisconnectedRoot(root: Node): boolean {
+  if (!root.isConnected) {
+    return true;
+  }
+
+  if (!(root instanceof Element)) {
+    return false;
+  }
+
+  return (
+    root.closest(EXCLUDED_TEXT_NODE_SELECTOR) !== null ||
+    root.closest("[hidden]") !== null ||
+    root.closest('[style*="display: none"]') !== null ||
+    root.closest('[style*="display:none"]') !== null
+  );
+}
+
+export function getTextNodes(
+  root: Node,
+  options: TextNodeScanOptions = {}
+): Text[] {
   const textNodes: Text[] = [];
   const ownerDocument = root.ownerDocument ?? document;
+
+  if (root instanceof Text) {
+    const parent = root.parentElement;
+
+    if (
+      parent &&
+      !isInsideExcludedContent(parent) &&
+      !parent.closest(EXCLUDED_TEXT_NODE_SELECTOR) &&
+      root.textContent?.trim()
+    ) {
+      return [root];
+    }
+
+    return [];
+  }
 
   const walker = ownerDocument.createTreeWalker(
     root,
@@ -45,6 +85,14 @@ export function getTextNodes(root: Node): Text[] {
 
   while (currentNode) {
     textNodes.push(currentNode as Text);
+
+    if (
+      options.maxNodes !== undefined &&
+      textNodes.length >= options.maxNodes
+    ) {
+      break;
+    }
+
     currentNode = walker.nextNode();
   }
 

@@ -140,6 +140,24 @@ function render(
 }
 
 {
+  const root = createRoot("<span>224 900 AMD</span>");
+  const conversionAmounts: number[] = [];
+  render(root, "USD", (match) => {
+    conversionAmounts.push(match.amount);
+    return 535.48;
+  });
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "grouped space currency badge count");
+  expectEqual(JSON.stringify(conversionAmounts), JSON.stringify([224900]), "grouped space conversion amount");
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    "224,900 AMD → $535.48",
+    "grouped space currency tooltip"
+  );
+}
+
+{
   const root = createRoot("<span>10 kg</span>");
   render(root, "USD", () => null, "units");
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
