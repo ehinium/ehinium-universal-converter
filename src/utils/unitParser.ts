@@ -4,6 +4,7 @@ import {
   type UnitCode,
   type UnitMatch,
 } from "./unitTypes";
+import { normalizeNumberToken } from "./numberNormalizer";
 
 type IndexedUnitMatch = UnitMatch & {
   index: number;
@@ -44,8 +45,7 @@ function maskExcludedSegments(text: string): string {
 }
 
 function parseAmount(value: string): number | null {
-  const amount = Number(value.replaceAll(",", ""));
-  return Number.isFinite(amount) ? amount : null;
+  return normalizeNumberToken(value)?.value ?? null;
 }
 
 export function parseUnits(text: string): UnitMatch[] {

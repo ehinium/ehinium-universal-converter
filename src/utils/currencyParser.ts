@@ -1,4 +1,5 @@
 import { fiatCurrencies } from "../data/currencies";
+import { normalizeNumberToken } from "./numberNormalizer";
 
 export type CurrencyMatch = {
   raw: string;
@@ -147,49 +148,6 @@ function createSuffixRegex(identifierPattern: string, flags: string): RegExp {
   );
 }
 
-function normalizeDigits(value: string): string {
-  return value
-    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
-    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0));
-}
-
-function parseAmount(value: string, decimalDigits: number): number | null {
-  let normalized = normalizeDigits(value)
-    .replace(/٬/g, ",")
-    .replace(/٫/g, ".");
-
-  const sign = normalized.startsWith("-") ? -1 : 1;
-  normalized = normalized.replace(/^[+-]/, "");
-  normalized = normalized.replace(/[\u0020\u00a0\u202f\u2009'’]/g, "");
-
-  const lastComma = normalized.lastIndexOf(",");
-  const lastDot = normalized.lastIndexOf(".");
-  const hasComma = lastComma !== -1;
-  const hasDot = lastDot !== -1;
-
-  if (hasComma && hasDot) {
-    const decimalSeparator = lastComma > lastDot ? "," : ".";
-    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
-    normalized = normalized
-      .replaceAll(thousandsSeparator, "")
-      .replace(decimalSeparator, ".");
-  } else if (hasComma || hasDot) {
-    const separator = hasComma ? "," : ".";
-    const parts = normalized.split(separator);
-    const fractionalLength = parts.at(-1)?.length ?? 0;
-    const isThousands =
-      parts.length > 2 ||
-      (fractionalLength === 3 && decimalDigits !== 3);
-
-    normalized = isThousands
-      ? parts.join("")
-      : `${parts[0]}.${parts.slice(1).join("")}`;
-  }
-
-  const amount = sign * Number(normalized);
-  return Number.isFinite(amount) ? amount : null;
-}
-
 function collectMatches(
   text: string,
   regex: RegExp,
@@ -217,7 +175,8 @@ function collectMatches(
       continue;
     }
 
-    const amount = parseAmount(amountText, definition.decimalDigits);
+    const normalizedAmount = normalizeNumberToken(amountText);
+    const amount = normalizedAmount?.value ?? null;
 
     if (amount === null) {
       continue;

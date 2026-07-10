@@ -1,5 +1,8 @@
 import { EHINIUM_IGNORE_ATTRIBUTE } from "./domExclusions";
-import { registerHoverTarget } from "./hoverRegistry";
+import {
+  registerHoverTarget,
+  removeExtensionOwnedTitles,
+} from "./hoverRegistry";
 import type { BadgeStyle } from "../types/settings";
 
 export type BadgeKey = {
@@ -105,7 +108,7 @@ export function createBadge(
   badge.setAttribute("data-ehinium-badge-style", badgeStyle);
   badge.setAttribute("data-ehinium-converted", "true");
   badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
-  badge.title = hoverContent;
+  badge.removeAttribute("title");
   badge.textContent = content;
   badge.style.display = "inline-flex";
   badge.style.alignItems = "center";
@@ -254,6 +257,7 @@ export function markBadge(badge: HTMLElement, key: BadgeIdentity): void {
   badge.setAttribute("data-ehinium-converted", "true");
   badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
   badge.setAttribute(BADGE_KEY_ATTRIBUTE, serializeBadgeKey(key));
+  badge.removeAttribute("title");
 }
 
 function unwrapEmptyPriceGroups(root: ParentNode): void {
@@ -273,6 +277,8 @@ function unwrapEmptyPriceGroups(root: ParentNode): void {
 }
 
 export function removeBadges(root: ParentNode = document): void {
+  removeExtensionOwnedTitles(root);
+
   if (root instanceof HTMLElement && root.matches(BADGE_SELECTOR)) {
     const anchor = root.previousElementSibling;
     const parent = root.parentElement;

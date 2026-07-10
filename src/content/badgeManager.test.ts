@@ -1,6 +1,6 @@
 import { Window } from "happy-dom";
-import { createBadge, serializeBadgeKey } from "./badgeManager";
-import { getHoverTarget } from "./hoverRegistry";
+import { createBadge, removeBadges, serializeBadgeKey } from "./badgeManager";
+import { getHoverTarget, registerHoverTarget } from "./hoverRegistry";
 
 const window = new Window();
 
@@ -66,7 +66,7 @@ expectEqual(
 
   expectEqual(copiedText, "$4.70", "copied badge value");
   expectEqual(badge.textContent, "Copied", "temporary copied feedback");
-  expectEqual(badge.title, "AED 16.99 → $4.70", "badge title tooltip");
+  expectEqual(badge.hasAttribute("title"), false, "badge native title tooltip");
   expectEqual(
     getHoverTarget(badge)?.content,
     "AED 16.99 → $4.70",
@@ -98,4 +98,54 @@ expectEqual(
   await Promise.resolve();
 
   expectEqual(badge.textContent, "22 lb", "failed copy badge value");
+}
+
+{
+  const legacyBadge = document.createElement("span");
+  legacyBadge.setAttribute("data-ehinium-badge", "true");
+  legacyBadge.setAttribute("title", "AED 16.99 → $4.70");
+
+  registerHoverTarget(legacyBadge, "AED 16.99 → $4.70");
+
+  expectEqual(
+    legacyBadge.hasAttribute("title"),
+    false,
+    "legacy extension-owned hover title removed"
+  );
+  expectEqual(
+    getHoverTarget(legacyBadge)?.content,
+    "AED 16.99 → $4.70",
+    "legacy extension-owned hover content"
+  );
+}
+
+{
+  const websiteElement = document.createElement("span");
+  websiteElement.setAttribute("title", "Website title");
+
+  registerHoverTarget(websiteElement, "Conversion tooltip");
+
+  expectEqual(
+    websiteElement.getAttribute("title"),
+    "Website title",
+    "website title preserved during hover registration"
+  );
+}
+
+{
+  const root = document.createElement("div");
+  const legacyConverted = document.createElement("span");
+
+  legacyConverted.setAttribute("data-ehinium-converted", "true");
+  legacyConverted.setAttribute("title", "Old conversion tooltip");
+  root.append(legacyConverted);
+  document.body.append(root);
+
+  removeBadges(root);
+
+  expectEqual(
+    legacyConverted.hasAttribute("title"),
+    false,
+    "legacy extension-owned cleanup title removed"
+  );
 }

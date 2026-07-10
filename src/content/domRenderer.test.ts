@@ -604,6 +604,11 @@ for (const source of ["10 in", "5 ft"] as const) {
     "16.99 AED → $4.63",
     "currency hover target"
   );
+  expectEqual(
+    source?.hasAttribute("title"),
+    false,
+    "currency hover native title"
+  );
 
   const duplicateRendered = render(
     root,
@@ -646,6 +651,7 @@ for (const source of ["10 in", "5 ft"] as const) {
     "10 kg → 22 lb",
     "unit hover target"
   );
+  expectEqual(source?.hasAttribute("title"), false, "unit hover native title");
 }
 
 {

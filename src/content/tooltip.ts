@@ -16,6 +16,7 @@ function getTooltipElement(): HTMLDivElement {
 
   element.classList.add(EHINIUM_TOOLTIP_CLASS);
   element.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
+  element.setAttribute("data-ehinium-tooltip", "true");
   element.setAttribute("role", "tooltip");
   element.style.position = "fixed";
   element.style.pointerEvents = "none";

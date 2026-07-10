@@ -33,6 +33,19 @@ function expectCurrencyMatches(
   }
 }
 
+function expectSingleCurrencyMatch(
+  text: string,
+  expected: { raw?: string; amount: number; currency: string }
+): void {
+  expectCurrencyMatches(text, [
+    {
+      raw: expected.raw ?? text,
+      amount: expected.amount,
+      currency: expected.currency,
+    },
+  ]);
+}
+
 for (const falsePositive of [
   "BN59-01312G",
   "Q70",
@@ -66,6 +79,39 @@ expectCurrencies("eur 80", [{ amount: 80, currency: "EUR" }]);
 expectCurrencies("usd 100", [{ amount: 100, currency: "USD" }]);
 expectCurrencies("100 aed", [{ amount: 100, currency: "AED" }]);
 expectCurrencies("10000000IRR", [{ amount: 10000000, currency: "IRR" }]);
+for (const [text, amount, currency] of [
+  ["1 234 USD", 1234, "USD"],
+  ["1 234 567 USD", 1234567, "USD"],
+  ["1\u00a0234 USD", 1234, "USD"],
+  ["1\u202f234 USD", 1234, "USD"],
+  ["1\u2009234 USD", 1234, "USD"],
+  ["1,234.56 USD", 1234.56, "USD"],
+  ["1.234,56 EUR", 1234.56, "EUR"],
+  ["1234,56 EUR", 1234.56, "EUR"],
+  ["1234.56 USD", 1234.56, "USD"],
+  ["1,234 USD", 1234, "USD"],
+  ["1.234 EUR", 1234, "EUR"],
+  ["1'234 CHF", 1234, "CHF"],
+  ["1’234 CHF", 1234, "CHF"],
+  ["1'234'567.89 CHF", 1234567.89, "CHF"],
+  ["USD 1 234", 1234, "USD"],
+  ["$1 234", 1234, "USD"],
+  ["1 234 USD", 1234, "USD"],
+  ["1 234 ֏", 1234, "AMD"],
+] as const) {
+  expectSingleCurrencyMatch(text, { amount, currency });
+}
+
+// Ambiguous single comma/period cases preserve the current heuristic:
+// a final separator followed by three digits is grouping for currencies that
+// do not use three decimal digits.
+expectSingleCurrencyMatch("1,234 USD", { amount: 1234, currency: "USD" });
+expectSingleCurrencyMatch("1.234 EUR", { amount: 1234, currency: "EUR" });
+
+// A final comma/period followed by one or two digits is decimal.
+expectSingleCurrencyMatch("12,50 EUR", { amount: 12.5, currency: "EUR" });
+expectSingleCurrencyMatch("12.50 USD", { amount: 12.5, currency: "USD" });
+
 expectCurrencies("224 900 AMD", [{ amount: 224900, currency: "AMD" }]);
 expectCurrencies("224\u00a0900 AMD", [{ amount: 224900, currency: "AMD" }]);
 expectCurrencies("224\u202f900 AMD", [{ amount: 224900, currency: "AMD" }]);
