@@ -1,0 +1,94 @@
+@import "../settings/SettingsApp.css";
+
+html {
+  min-width: 0;
+  min-height: 100%;
+  background: var(--page-bg);
+}
+
+body {
+  min-width: 0;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text-primary);
+  background: var(--page-bg);
+}
+
+.settings-page--options {
+  width: 780px;
+  max-width: 100%;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+@media (max-width: 640px) {
+  .settings-page--options {
+    width: 100%;
+    padding: 20px;
+  }
+
+  .settings-page--options .settings-header h1 {
+    font-size: 27px;
+  }
+
+  .settings-page--options .settings-section {
+    padding: 22px 20px;
+  }
+
+  .settings-page--options .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .settings-page--options .compact-fields,
+  .settings-page--options .domain-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .settings-page--options {
+    padding: 16px;
+  }
+
+  .settings-page--options .settings-header {
+    margin-bottom: 18px;
+  }
+
+  .settings-page--options .settings-header h1 {
+    font-size: 26px;
+  }
+
+  .settings-page--options .settings-section {
+    padding: 20px 16px;
+  }
+
+  .settings-page--options .toggle-setting {
+    gap: 12px;
+  }
+
+  .settings-page--options .rate-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-page--options .rate-status .button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .settings-page--options .manual-result {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-page--options .manual-result .button {
+    justify-self: start;
+  }
+
+  .settings-page--options .domain-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

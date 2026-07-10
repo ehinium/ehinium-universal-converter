@@ -23,27 +23,27 @@ const loadedStatus: ExchangeRateStatus = {
 
 expectEqual(
   formatRateStatus(loadedStatus, now),
-  ["Rates: Frankfurter", "Updated: 12 minutes ago"],
+  ["Updated 12 minutes ago", "Frankfurter source"],
   "provider and updated time"
 );
 expectEqual(
   formatRateStatus({ ...loadedStatus, fetchedAt: null }, now),
-  ["Rates: Frankfurter", "Date: 2026-06-15"],
+  ["Rates dated 2026-06-15", "Frankfurter source"],
   "provider and rate date"
 );
 expectEqual(
   formatRateStatus({ response: null, fetchedAt: null, lastErrorAt: null }, now),
-  ["Rates not loaded yet"],
+  ["Not loaded yet"],
   "missing rate metadata"
 );
 expectEqual(
   formatRateStatus({ ...loadedStatus, lastErrorAt: now }, now),
-  ["Could not update rates", "Using cached rates if available"],
+  ["Failed to load rates", "Using cached rates"],
   "failed refresh with cache"
 );
 expectEqual(
   formatRateStatus({ response: null, fetchedAt: null, lastErrorAt: now }, now),
-  ["Could not update rates", "Using cached rates if available"],
+  ["Failed to load rates", "Try refreshing again"],
   "failed refresh without cache"
 );
 

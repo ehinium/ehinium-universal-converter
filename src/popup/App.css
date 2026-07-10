@@ -1,0 +1,104 @@
+@import "../settings/SettingsApp.css";
+
+html,
+body,
+#root {
+  width: 440px;
+  min-width: 440px;
+  max-width: 440px;
+  margin: 0;
+}
+
+html {
+  min-height: 0;
+  background: var(--page-bg);
+}
+
+body {
+  min-height: 0;
+  overflow-x: hidden;
+  color: var(--text-primary);
+  background: var(--page-bg);
+}
+
+#root {
+  min-height: 0;
+}
+
+.settings-page--popup {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 18px;
+  --surface-radius: 14px;
+  --control-height: 44px;
+}
+
+.settings-page--popup .settings-header {
+  margin-bottom: 14px;
+}
+
+.settings-page--popup .eyebrow {
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+
+.settings-page--popup .settings-header h1 {
+  font-size: 25px;
+  letter-spacing: 0;
+}
+
+.popup-surface {
+  overflow: hidden;
+}
+
+.popup-block {
+  min-width: 0;
+  padding: 15px 16px;
+}
+
+.popup-block + .popup-block {
+  border-top: 1px solid var(--border);
+}
+
+.popup-fields {
+  display: grid;
+  gap: 13px;
+}
+
+.settings-page--popup .setting-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  align-items: stretch;
+}
+
+.settings-page--popup .setting-copy {
+  min-width: 0;
+}
+
+.settings-page--popup .section-content {
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-page--popup .section-heading h2 {
+  font-size: 15px;
+}
+
+.settings-page--popup .toggle-setting {
+  gap: 12px;
+}
+
+.settings-page--popup .manual-result {
+  gap: 10px;
+}
+
+.settings-page--popup .manual-converted {
+  font-size: 17px;
+}
+
+.button--wide {
+  width: 100%;
+}

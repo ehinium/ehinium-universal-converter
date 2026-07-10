@@ -1,5 +1,5 @@
 import { SettingsApp } from "../settings/SettingsApp";
 
 export default function App() {
-  return <SettingsApp surface="popup" />;
+  return <SettingsApp surface="options" />;
 }

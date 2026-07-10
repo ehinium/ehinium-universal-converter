@@ -10,15 +10,15 @@ function formatUpdatedAt(fetchedAt: number, now: number): string {
   const elapsedMinutes = Math.max(0, Math.floor((now - fetchedAt) / 60000));
 
   if (elapsedMinutes < 1) {
-    return "Updated: just now";
+    return "Updated just now";
   }
 
   if (elapsedMinutes < 60) {
-    return `Updated: ${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`;
+    return `Updated ${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`;
   }
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
-  return `Updated: ${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`;
+  return `Updated ${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`;
 }
 
 export function formatRateStatus(
@@ -26,18 +26,21 @@ export function formatRateStatus(
   now = Date.now()
 ): string[] {
   if (status.lastErrorAt !== null) {
-    return ["Could not update rates", "Using cached rates if available"];
+    return [
+      "Failed to load rates",
+      status.response ? "Using cached rates" : "Try refreshing again",
+    ];
   }
 
   if (!status.response) {
-    return ["Rates not loaded yet"];
+    return ["Not loaded yet"];
   }
 
   return [
-    `Rates: ${providerLabels[status.response.provider]}`,
     status.fetchedAt !== null
       ? formatUpdatedAt(status.fetchedAt, now)
-      : `Date: ${status.response.date}`,
+      : `Rates dated ${status.response.date}`,
+    `${providerLabels[status.response.provider]} source`,
   ];
 }
 
