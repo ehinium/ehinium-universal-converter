@@ -28,9 +28,17 @@ const aliasPattern = [...aliasDefinitions.keys()]
   .sort((left, right) => right.length - left.length)
   .map(escapeRegex)
   .join("|");
-const amountPattern = "[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
+const digitPattern = "[0-9٠-٩۰-۹]";
+const groupingSeparatorPattern = "[ ,.\\u00a0\\u202f\\u2009'’٬]";
+const decimalSeparatorPattern = "[.,٫]";
+const amountPattern =
+  `[+-]?(?:${digitPattern}{1,3}(?:${groupingSeparatorPattern}${digitPattern}{3})+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}{1,2})?|${digitPattern}+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}+)?)`;
+const numericStartBoundaryPattern =
+  `(?<![\\p{L}\\p{N}_-])(?<!${digitPattern}${groupingSeparatorPattern})`;
 const unitRegex = new RegExp(
-  `(?<![\\p{L}\\p{N}_-])(${amountPattern})[\\s\\u00a0\\u202f]*(${aliasPattern})(?![\\p{L}\\p{N}_-])`,
+  `${numericStartBoundaryPattern}(${amountPattern})[\\s\\u00a0\\u202f]*(${aliasPattern})(?![\\p{L}\\p{N}_-])`,
   "giu"
 );
 const excludedSegmentRegex =

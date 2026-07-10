@@ -3,6 +3,7 @@ import {
   registerHoverTarget,
   removeExtensionOwnedTitles,
 } from "./hoverRegistry";
+import { hideTooltip, showTooltip } from "./tooltip";
 import type { BadgeStyle } from "../types/settings";
 
 export type BadgeKey = {
@@ -19,6 +20,24 @@ export type UnitBadgeKey = {
 };
 
 type BadgeIdentity = BadgeKey | UnitBadgeKey;
+
+export type BadgeColorContext = {
+  textColor: string;
+  backgroundColor: string;
+  isSharedBackground: boolean;
+};
+
+type ParsedColor = {
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+};
+
+type EffectiveBackground = {
+  element: HTMLElement;
+  color: ParsedColor;
+};
 
 const BADGE_SELECTOR = '[data-ehinium-badge="true"]';
 const BADGE_KEY_ATTRIBUTE = "data-ehinium-key";
@@ -41,7 +60,172 @@ const PRICE_CONTAINER_SELECTOR = [
   ".price",
 ].join(", ");
 const COPY_FEEDBACK_DURATION_MS = 900;
+const BADGE_FOCUS_STYLE_ID = "ehinium-converter-badge-focus-style";
+const BADGE_CLASS = "ehinium-converter-badge";
 const copyFeedbackTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
+function ensureBadgeFocusStyles(): void {
+  if (document.getElementById(BADGE_FOCUS_STYLE_ID)) {
+    return;
+  }
+
+  const style = document.createElement("style");
+
+  style.id = BADGE_FOCUS_STYLE_ID;
+  style.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
+  style.textContent = `
+.${BADGE_CLASS}:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.75);
+}
+`;
+  document.documentElement.append(style);
+}
+
+function parseCssColor(value: string): ParsedColor | null {
+  const normalizedValue = value.trim().toLowerCase();
+
+  if (normalizedValue === "transparent") {
+    return {
+      red: 0,
+      green: 0,
+      blue: 0,
+      alpha: 0,
+    };
+  }
+
+  const match = normalizedValue.match(
+    /^rgba?\(\s*([.\d]+)\s*,\s*([.\d]+)\s*,\s*([.\d]+)(?:\s*,\s*([.\d]+)\s*)?\)$/u
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const red = Number(match[1]);
+  const green = Number(match[2]);
+  const blue = Number(match[3]);
+  const alpha = match[4] === undefined ? 1 : Number(match[4]);
+
+  if (
+    !Number.isFinite(red) ||
+    !Number.isFinite(green) ||
+    !Number.isFinite(blue) ||
+    !Number.isFinite(alpha)
+  ) {
+    return null;
+  }
+
+  return {
+    red: Math.round(Math.min(255, Math.max(0, red))),
+    green: Math.round(Math.min(255, Math.max(0, green))),
+    blue: Math.round(Math.min(255, Math.max(0, blue))),
+    alpha: Math.min(1, Math.max(0, alpha)),
+  };
+}
+
+function formatRgb(color: ParsedColor): string {
+  return `rgb(${color.red}, ${color.green}, ${color.blue})`;
+}
+
+function formatRgba(color: ParsedColor, alpha: number): string {
+  return `rgba(${color.red}, ${color.green}, ${color.blue}, ${alpha})`;
+}
+
+function readComputedStyle(element: HTMLElement): CSSStyleDeclaration | null {
+  return typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+}
+
+function isVisuallyHidden(element: HTMLElement): boolean {
+  const style = readComputedStyle(element);
+
+  if (!style) {
+    return false;
+  }
+
+  return (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    style.visibility === "collapse" ||
+    (style.opacity.trim() !== "" && Number(style.opacity) === 0)
+  );
+}
+
+function getEffectiveBackground(
+  element: HTMLElement
+): EffectiveBackground | null {
+  let current: HTMLElement | null = element;
+
+  while (current) {
+    const style = readComputedStyle(current);
+    const color = style ? parseCssColor(style.backgroundColor) : null;
+
+    if (color && color.alpha > 0) {
+      return {
+        element: current,
+        color,
+      };
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
+function colorsMatch(first: ParsedColor, second: ParsedColor): boolean {
+  return (
+    first.red === second.red &&
+    first.green === second.green &&
+    first.blue === second.blue &&
+    Math.abs(first.alpha - second.alpha) < 0.001
+  );
+}
+
+function areCloselyRelated(
+  first: HTMLElement,
+  second: HTMLElement
+): boolean {
+  return (
+    first === second ||
+    first.contains(second) ||
+    second.contains(first) ||
+    first.parentElement === second.parentElement
+  );
+}
+
+function getContextTextColor(color: ParsedColor): string {
+  return color.alpha >= 1 ? formatRgb(color) : formatRgba(color, color.alpha);
+}
+
+function getContextBackgroundColor(color: ParsedColor): string {
+  return formatRgba(color, 0.07);
+}
+
+function applyBadgeColorContext(
+  badge: HTMLElement,
+  sourceElement: HTMLElement,
+  badgeStyle: BadgeStyle
+): void {
+  const badgeParent = badge.parentElement;
+
+  if (!badgeParent) {
+    return;
+  }
+
+  const context = getBadgeColorContext(sourceElement, badgeParent);
+
+  if (!context?.isSharedBackground) {
+    return;
+  }
+
+  badge.style.color = context.textColor;
+
+  if (badgeStyle !== "minimal") {
+    badge.style.background = context.backgroundColor;
+  }
+}
 
 function normalizeAmount(amount: number): string {
   return amount
@@ -85,9 +269,14 @@ async function copyBadgeContent(
     }
 
     badge.textContent = "Copied";
+    badge.setAttribute(
+      "aria-label",
+      `Copied. ${getBadgeAriaLabel(badge)}`
+    );
 
     const timer = setTimeout(() => {
       badge.textContent = content;
+      badge.setAttribute("aria-label", getBadgeAriaLabel(badge));
       copyFeedbackTimers.delete(badge);
     }, COPY_FEEDBACK_DURATION_MS);
 
@@ -97,22 +286,72 @@ async function copyBadgeContent(
   }
 }
 
+function getBadgeAriaLabel(badge: HTMLElement): string {
+  return badge.dataset.ehiniumAriaLabel ?? badge.getAttribute("aria-label") ?? "";
+}
+
+export function getBadgeColorContext(
+  sourceElement: HTMLElement,
+  badgeParent: HTMLElement
+): BadgeColorContext | null {
+  if (isVisuallyHidden(sourceElement) || !sourceElement.isConnected) {
+    return null;
+  }
+
+  const sourceStyle = readComputedStyle(sourceElement);
+  const sourceColor = sourceStyle ? parseCssColor(sourceStyle.color) : null;
+
+  if (!sourceColor || sourceColor.alpha <= 0) {
+    return null;
+  }
+
+  const sourceBackground = getEffectiveBackground(sourceElement);
+  const badgeBackground = getEffectiveBackground(badgeParent);
+
+  if (!sourceBackground || !badgeBackground) {
+    return {
+      textColor: getContextTextColor(sourceColor),
+      backgroundColor: getContextBackgroundColor(sourceColor),
+      isSharedBackground: false,
+    };
+  }
+
+  const isSharedBackground =
+    sourceBackground.element === badgeBackground.element ||
+    (colorsMatch(sourceBackground.color, badgeBackground.color) &&
+      areCloselyRelated(sourceBackground.element, badgeBackground.element));
+
+  return {
+    textColor: getContextTextColor(sourceColor),
+    backgroundColor: getContextBackgroundColor(sourceColor),
+    isSharedBackground,
+  };
+}
+
 export function createBadge(
   content: string,
   hoverContent: string,
   badgeStyle: BadgeStyle = "default"
 ): HTMLElement {
-  const badge = document.createElement("span");
+  ensureBadgeFocusStyles();
 
+  const badge = document.createElement("span");
+  const ariaLabel = formatBadgeAriaLabel(hoverContent, content);
+
+  badge.classList.add(BADGE_CLASS);
   badge.setAttribute("data-ehinium-badge", "true");
   badge.setAttribute("data-ehinium-badge-style", badgeStyle);
   badge.setAttribute("data-ehinium-converted", "true");
   badge.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
+  badge.setAttribute("role", "button");
+  badge.setAttribute("tabindex", "0");
+  badge.setAttribute("aria-label", ariaLabel);
+  badge.dataset.ehiniumAriaLabel = ariaLabel;
   badge.removeAttribute("title");
   badge.textContent = content;
   badge.style.display = "inline-flex";
   badge.style.alignItems = "center";
-  badge.style.verticalAlign = "middle";
+  badge.style.verticalAlign = "baseline";
   badge.style.marginLeft = "6px";
   badge.style.marginInlineStart = "6px";
   badge.style.padding = "2px 6px";
@@ -123,6 +362,7 @@ export function createBadge(
   badge.style.fontWeight = "600";
   badge.style.lineHeight = "1.4";
   badge.style.whiteSpace = "nowrap";
+  badge.style.flexShrink = "0";
   badge.style.textDecoration = "none";
   badge.style.pointerEvents = "auto";
   badge.style.cursor = "pointer";
@@ -147,11 +387,50 @@ export function createBadge(
   badge.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation();
     void copyBadgeContent(badge, content);
   });
+  badge.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  badge.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  badge.addEventListener("keydown", (event) => {
+    if (!isKeyboardActivation(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    void copyBadgeContent(badge, content);
+  });
+  badge.addEventListener("focus", () => {
+    const rect = badge.getBoundingClientRect();
+
+    showTooltip(rect.left, rect.bottom, hoverContent);
+  });
+  badge.addEventListener("blur", hideTooltip);
 
   registerHoverTarget(badge, hoverContent);
   return badge;
+}
+
+function formatBadgeAriaLabel(hoverContent: string, fallback: string): string {
+  const [source, converted] = hoverContent.split("→").map((part) => part.trim());
+
+  if (source && converted) {
+    return `Convert ${source} to ${converted}. Click to copy.`;
+  }
+
+  return `${fallback}. Click to copy.`;
+}
+
+function isKeyboardActivation(event: KeyboardEvent): boolean {
+  return event.key === "Enter" || event.key === " " || event.key === "Spacebar";
 }
 
 function createPriceGroup(): HTMLElement {
@@ -206,6 +485,13 @@ export function insertBadgeAfter(
   if (serializedKey !== null) {
     getPriceContainer(anchor).setAttribute(PRICE_KEY_ATTRIBUTE, serializedKey);
   }
+
+  applyBadgeColorContext(
+    badge,
+    anchor,
+    (badge.getAttribute("data-ehinium-badge-style") as BadgeStyle | null) ??
+      "default"
+  );
 }
 
 export function insertBadgeAfterTextNode(
@@ -225,6 +511,13 @@ export function insertBadgeAfterTextNode(
   if (serializedKey !== null) {
     getPriceContainer(parent).setAttribute(PRICE_KEY_ATTRIBUTE, serializedKey);
   }
+
+  applyBadgeColorContext(
+    badge,
+    parent,
+    (badge.getAttribute("data-ehinium-badge-style") as BadgeStyle | null) ??
+      "default"
+  );
 }
 
 export function getPriceContainer(anchor: HTMLElement): HTMLElement {

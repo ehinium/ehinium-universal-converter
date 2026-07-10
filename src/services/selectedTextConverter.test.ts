@@ -45,7 +45,7 @@ expectEqual(
   "$4.63",
   "selected currency conversion"
 );
-expectEqual(await convert("10 kg"), "22 lb", "selected unit conversion");
+expectEqual(await convert("10 kg"), "22.05 lb", "selected unit conversion");
 expectEqual(
   await convert("AED 16.99", { enabled: false }),
   null,
@@ -65,6 +65,11 @@ expectEqual(
   await convert("AED 16.99 and 10 kg"),
   "$4.63",
   "currency parser priority"
+);
+expectEqual(
+  await convert("2021.04 IRR"),
+  "$0.004812",
+  "very small selected currency conversion"
 );
 expectEqual(await convert("not convertible"), null, "invalid selection");
 expectEqual(
@@ -99,7 +104,18 @@ const manualUnit = await getManualConversion(
   { getRates: async () => rates }
 );
 expectEqual(manualUnit?.source, "10 kg", "manual unit source");
-expectEqual(manualUnit?.converted, "22 lb", "manual unit result");
+expectEqual(manualUnit?.converted, "22.05 lb", "manual unit result");
+
+const tinyManualCurrency = await getManualConversion(
+  "2021.04 IRR",
+  settings(),
+  { getRates: async () => rates }
+);
+expectEqual(
+  tinyManualCurrency?.converted,
+  "$0.004812",
+  "manual tiny currency result"
+);
 
 for (const [input, expectedSource, overrides] of [
   ["10000000IRR", "10,000,000 IRR", {}],

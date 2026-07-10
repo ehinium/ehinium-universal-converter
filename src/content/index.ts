@@ -3,10 +3,8 @@ import {
   subscribeToSettingsChanges,
 } from "../services/settings";
 import { isDomainAllowed } from "../services/domainRules";
-import { getExchangeRates } from "../services/rates";
 import type { UserSettings } from "../types/settings";
 import type { ExtensionMessage } from "../shared/messages";
-import { convertCurrency } from "../utils/currencyConverter";
 import {
   clearDebugEvents,
   debugLog,
@@ -14,10 +12,8 @@ import {
   isDebugEnabled,
   type DebugEvent,
 } from "./debug";
-import {
-  renderConversions,
-  resetRenderedConversions,
-} from "./domRenderer";
+import { resetRenderedConversions } from "./domRenderer";
+import { scanConversionRoots } from "./conversionScan";
 import { getClosestHoverTarget } from "./hoverRegistry";
 import { observeDomChanges } from "./observer";
 import { hideTooltip, showTooltip } from "./tooltip";
@@ -26,7 +22,6 @@ import {
   createScanScheduler,
   type ScanRequest,
 } from "./scanScheduler";
-import { collectTextNodesForScan } from "./scanRoots";
 
 declare global {
   interface Window {
@@ -282,74 +277,21 @@ async function scanConversions(request: ScanRequest): Promise<number> {
   }
 
   const roots = request.roots ?? [document.body];
-  const textNodes = await collectTextNodesForScan(roots);
-
-  if (textNodes.length === 0) {
-    debugLog({
-      type: "scan:skipped",
-      reason: "No eligible text nodes",
-      scannedNodeCount: 0,
-    });
-    return 0;
-  }
-
-  if (settings.converterMode === "units") {
-    const renderedCount = renderConversions(textNodes, {
-      enabled: settings.enabled,
-      targetCurrency: settings.targetCurrency,
-      converterMode: settings.converterMode,
-      badgeStyle: settings.badgeStyle,
-      badgeVisibility: settings.badgeVisibility,
-      unitSystem: settings.unitSystem,
-      targetLengthUnit: settings.targetLengthUnit,
-      targetWeightUnit: settings.targetWeightUnit,
-      targetTemperatureUnit: settings.targetTemperatureUnit,
-      convertAmount: () => null,
-    });
-
-    if (renderedCount > 0) {
-      console.log("[EUC] Conversions rendered:", renderedCount);
-    }
-
-    return textNodes.length;
-  }
-
-  const ratesData = await getExchangeRates(settings.targetCurrency);
-
-  if (settingsChangedDuringScan(settings, version)) {
-    debugLog({
-      type: "scan:skipped",
-      reason: "Settings changed before render",
-      scannedNodeCount: textNodes.length,
-    });
-    return textNodes.length;
-  }
-
-  const renderedCount = renderConversions(textNodes, {
-    enabled: settings.enabled,
-    targetCurrency: settings.targetCurrency,
-    converterMode: settings.converterMode,
-    badgeStyle: settings.badgeStyle,
-    badgeVisibility: settings.badgeVisibility,
-    unitSystem: settings.unitSystem,
-    targetLengthUnit: settings.targetLengthUnit,
-    targetWeightUnit: settings.targetWeightUnit,
-    targetTemperatureUnit: settings.targetTemperatureUnit,
-    convertAmount(match) {
-      return convertCurrency(
-        match.amount,
-        match.currency,
-        settings.targetCurrency,
-        ratesData.rates
-      );
+  const result = await scanConversionRoots({
+    ...request,
+    roots,
+  }, settings, {
+    settingsChanged() {
+      return settingsChangedDuringScan(settings, version);
     },
+    debugLog,
   });
 
-  if (renderedCount > 0) {
-    console.log("[EUC] Conversions rendered:", renderedCount);
+  if (result.renderedCount > 0) {
+    console.log("[EUC] Conversions rendered:", result.renderedCount);
   }
 
-  return textNodes.length;
+  return result.scannedNodeCount;
 }
 
 const scanScheduler = createScanScheduler({

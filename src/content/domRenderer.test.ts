@@ -20,9 +20,11 @@ Object.assign(globalThis, {
   localStorage: window.localStorage,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
+  KeyboardEvent: window.KeyboardEvent,
   Node: window.Node,
   NodeFilter: window.NodeFilter,
   Text: window.Text,
+  getComputedStyle: window.getComputedStyle.bind(window),
 });
 
 const visibleRect = {
@@ -123,6 +125,198 @@ function render(
 }
 
 {
+  const root = createRoot('<a href="#linked-currency">Linked price $49.99</a>');
+  const link = root.querySelector<HTMLAnchorElement>("a");
+  link?.style.setProperty("text-decoration", "underline");
+  let linkClicks = 0;
+  let linkKeydowns = 0;
+
+  link?.addEventListener("click", () => {
+    linkClicks++;
+  });
+  link?.addEventListener("keydown", () => {
+    linkKeydowns++;
+  });
+
+  const rendered = render(root, "EUR", () => 45.99);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(rendered, 1, "linked currency rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "linked currency badge count");
+  expectEqual(badge?.parentElement, link, "linked currency badge parent");
+  expectEqual(link?.childNodes[1], badge ?? null, "linked currency badge after text");
+  expectEqual(badge?.style.textDecoration, "none", "linked currency badge no underline");
+
+  badge?.dispatchEvent(
+    new window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+  await Promise.resolve();
+
+  expectEqual(linkClicks, 0, "linked currency badge click does not trigger link");
+  badge?.dispatchEvent(
+    new window.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(linkKeydowns, 0, "linked currency badge key does not trigger link");
+
+  link?.dispatchEvent(
+    new window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(linkClicks, 1, "normal linked currency text click triggers link");
+  link?.dispatchEvent(
+    new window.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(linkKeydowns, 1, "normal linked currency key triggers link");
+
+  render(root, "EUR", () => 45.99);
+  expectEqual(
+    root.querySelectorAll(BADGE_SELECTOR).length,
+    1,
+    "linked currency duplicate badge count"
+  );
+}
+
+{
+  const root = createRoot('<button type="button">Button text with 120 EUR</button>');
+  const button = root.querySelector<HTMLButtonElement>("button");
+  let buttonClicks = 0;
+  let buttonKeydowns = 0;
+
+  button?.addEventListener("click", () => {
+    buttonClicks++;
+  });
+  button?.addEventListener("keydown", () => {
+    buttonKeydowns++;
+  });
+
+  const rendered = render(root, "USD", () => 130.43);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(rendered, 1, "button currency rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "button currency badge count");
+  expectEqual(badge?.parentElement, button, "button currency badge parent");
+  expectEqual(button?.childNodes[1], badge ?? null, "button currency badge after text");
+
+  badge?.dispatchEvent(
+    new window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+  await Promise.resolve();
+
+  expectEqual(buttonClicks, 0, "button badge click does not trigger button");
+  badge?.dispatchEvent(
+    new window.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(buttonKeydowns, 0, "button badge key does not trigger button");
+
+  button?.dispatchEvent(
+    new window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(buttonClicks, 1, "normal button source click triggers button");
+  button?.dispatchEvent(
+    new window.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }) as unknown as Event
+  );
+
+  expectEqual(buttonKeydowns, 1, "normal button source key triggers button");
+
+  render(root, "USD", () => 130.43);
+  expectEqual(
+    root.querySelectorAll(BADGE_SELECTOR).length,
+    1,
+    "button currency duplicate badge count"
+  );
+}
+
+{
+  const root = createRoot(
+    '<button type="button" style="color: rgb(255, 255, 255); background-color: rgb(20, 20, 20)">Dark button 120 EUR</button>'
+  );
+  render(root, "USD", () => 130.43);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(
+    badge?.style.color,
+    "rgb(255, 255, 255)",
+    "dark button badge text color"
+  );
+  expectEqual(
+    badge?.style.background,
+    "rgba(255, 255, 255, 0.07)",
+    "dark button badge background"
+  );
+  expectEqual(badge?.style.fontSize, "11px", "button badge font size");
+  expectEqual(badge?.style.lineHeight, "1.4", "button badge line height");
+  expectEqual(badge?.style.padding, "2px 6px", "button badge padding");
+  expectEqual(badge?.style.borderRadius, "999px", "button badge radius");
+  expectEqual(badge?.style.fontWeight, "600", "button badge font weight");
+}
+
+{
+  const root = createRoot('<a href="#linked-unit">Linked unit 10 kg</a>');
+  const link = root.querySelector<HTMLAnchorElement>("a");
+  const rendered = render(root, "USD", () => null, "units");
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(rendered, 1, "linked unit rendered count");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "linked unit badge count");
+  expectEqual(badge?.parentElement, link, "linked unit badge parent");
+  expectEqual(link?.childNodes[1], badge ?? null, "linked unit badge after text");
+}
+
+for (const [convertedAmount, expected] of [
+  [2372.3, "$2,372.30"],
+  [7.29, "$7.29"],
+  [0.2456, "$0.2456"],
+  [0.004812, "$0.004812"],
+] as const) {
+  const root = createRoot("<span>AED 1</span>");
+  render(root, "USD", () => convertedAmount);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(
+    badge?.textContent,
+    expected,
+    `currency converted badge ${convertedAmount}`
+  );
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    `1 AED → ${expected}`,
+    `currency converted tooltip ${convertedAmount}`
+  );
+}
+
+{
   const root = createRoot("<span>10000000IRR</span>");
   render(root, "USD", () => 23.81);
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
@@ -162,11 +356,24 @@ function render(
   render(root, "USD", () => null, "units");
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
-  expectEqual(badge?.textContent, "22 lb", "unit tooltip visible badge text");
+  expectEqual(badge?.textContent, "22.05 lb", "unit tooltip visible badge text");
   expectEqual(
     badge ? getHoverTarget(badge)?.content : null,
-    "10 kg → 22 lb",
+    "10 kg → 22.05 lb",
     "unit tooltip content"
+  );
+}
+
+{
+  const root = createRoot("<span>1 m</span>");
+  render(root, "USD", () => null, "units", true, "default", "km");
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
+
+  expectEqual(badge?.textContent, "0.001 km", "small unit badge text");
+  expectEqual(
+    badge ? getHoverTarget(badge)?.content : null,
+    "1 m → 0.001 km",
+    "small unit tooltip content"
   );
 }
 
@@ -248,7 +455,7 @@ function render(
 
   expectEqual(rendered, 1, "units mode rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "units mode badges");
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22 lb", "units mode badge text");
+  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22.05 lb", "units mode badge text");
   expectEqual(conversionCalls, 0, "units mode converter calls");
 }
 
@@ -279,7 +486,7 @@ function render(
 
   expectEqual(rendered, 1, "units mode mixed rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "units mode mixed badges");
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22 lb", "units mode excludes currency badge");
+  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22.05 lb", "units mode excludes currency badge");
 }
 
 {
@@ -648,7 +855,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "unit hover badges");
   expectEqual(
     source ? getHoverTarget(source)?.content : null,
-    "10 kg → 22 lb",
+    "10 kg → 22.05 lb",
     "unit hover target"
   );
   expectEqual(source?.hasAttribute("title"), false, "unit hover native title");
@@ -699,7 +906,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   expectEqual(rendered, 1, "unit-only hover rendered count");
   expectEqual(
     source ? getHoverTarget(source)?.content : null,
-    "10 kg → 22 lb",
+    "10 kg → 22.05 lb",
     "unit-only hover target"
   );
 }

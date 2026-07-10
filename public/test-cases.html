@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ehinium Converter Smoke Test Cases</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        line-height: 1.5;
+        color: #172033;
+        background: #f6f7fb;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.15;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      a {
+        color: #1d4ed8;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 12px;
+        cursor: pointer;
+        color: #ffffff;
+        background: #1f2937;
+      }
+
+      textarea,
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cfd6e4;
+        border-radius: 8px;
+        padding: 8px 10px;
+        color: #172033;
+        background: #ffffff;
+      }
+
+      textarea {
+        min-height: 72px;
+        resize: vertical;
+      }
+
+      code,
+      pre {
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 13px;
+      }
+
+      pre {
+        overflow: auto;
+        border-radius: 10px;
+        padding: 12px;
+        background: #111827;
+        color: #e5e7eb;
+      }
+
+      .intro {
+        margin-bottom: 24px;
+        color: #526070;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 20px 0 28px;
+      }
+
+      .section {
+        margin: 0 0 24px;
+        border: 1px solid #d9deea;
+        border-radius: 16px;
+        padding: 18px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+      }
+
+      .section-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .note {
+        max-width: 680px;
+        color: #5b6678;
+        font-size: 14px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        border: 1px solid #e1e6ef;
+        border-radius: 12px;
+        padding: 14px;
+        background: #fbfcff;
+      }
+
+      .muted {
+        color: #667085;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: #eef2ff;
+        color: #3730a3;
+        font-weight: 600;
+      }
+
+      .hidden-example {
+        display: none;
+      }
+
+      .dynamic-output {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Ehinium Converter Smoke Test Cases</h1>
+      <p class="intro">
+        Local manual QA page for parser, rendering, hover, duplicate, and
+        dynamic-content checks. Load this page with the extension enabled and
+        test different target currencies, unit systems, badge styles, and hover
+        modes.
+      </p>
+
+      <div class="toolbar" aria-label="Dynamic content controls">
+        <button type="button" id="add-dynamic">
+          Add dynamic currency and unit examples
+        </button>
+        <button type="button" id="replace-dynamic">
+          Replace text like a SPA update
+        </button>
+      </div>
+
+      <section class="section" aria-labelledby="currencies-title">
+        <div class="section-header">
+          <h2 id="currencies-title">Currencies</h2>
+          <p class="note">
+            Expected: supported currencies render one conversion badge or hover
+            tooltip, grouped amounts parse as complete values, lowercase ISO
+            codes normalize, and same-currency examples are skipped when the
+            target currency matches.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <h3>Normal paragraphs</h3>
+            <p>US formatted price: $1,234.56</p>
+            <p>European decimal format: 1.234,56 EUR</p>
+            <p>Space-grouped AMD amount: 224 900 AMD</p>
+            <p>Armenian dram symbol: 869 900 ֏</p>
+          </article>
+
+          <article class="card">
+            <h3>Cards and nested spans</h3>
+            <p>Large Iranian rial value: <span>10,000,000 IRR</span></p>
+            <p>Dirham suffix example: <span class="pill">100 AED</span></p>
+            <p>
+              Lowercase ISO code:
+              <span><strong>80 eur</strong></span>
+            </p>
+          </article>
+
+          <article class="card">
+            <h3>Links and buttons</h3>
+            <p><a href="#currency-link">Linked price $49.99</a></p>
+            <button type="button">Button text with 120 EUR</button>
+          </article>
+
+          <article class="card">
+            <h3>Same-currency examples</h3>
+            <p class="muted">
+              Set target currency to USD, EUR, or AMD to verify matching source
+              currency does not render a redundant conversion.
+            </p>
+            <p>Same USD example: $100</p>
+            <p>Same EUR example: 100 EUR</p>
+            <p>Same AMD example: 100 AMD</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="units-title">
+        <div class="section-header">
+          <h2 id="units-title">Units</h2>
+          <p class="note">
+            Expected: length, weight, and temperature units convert according to
+            settings. Requires Conversion mode to be set to Units only or
+            Everything. Upper/lowercase unit input should normalize, and compact
+            values without a space should still parse.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <h3>Common units</h3>
+            <p>Length metric: 180 cm</p>
+            <p>Weight metric: 10 kg</p>
+            <p>Imperial distance: 5 miles</p>
+          </article>
+
+          <article class="card">
+            <h3>Temperatures</h3>
+            <p>Room temperature: 20 °C</p>
+            <p>Fahrenheit reference: 68 °F</p>
+          </article>
+
+          <article class="card">
+            <h3>Compact and nested</h3>
+            <p>Compact weight: 10000kg</p>
+            <p>
+              Nested length:
+              <span><span>250 CM</span></span>
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="false-positives-title">
+        <div class="section-header">
+          <h2 id="false-positives-title">False Positives</h2>
+          <p class="note">
+            Expected: none of these should render conversion badges or hover
+            targets.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <p>TV model: Q70</p>
+            <p>Remote model: BN59-01312G</p>
+            <p>Phone name: iPhone 15</p>
+          </article>
+          <article class="card">
+            <p>Promotion text: Product 5%</p>
+            <p>Rating text: 4.8 stars</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="excluded-title">
+        <div class="section-header">
+          <h2 id="excluded-title">Excluded Or Risky Containers</h2>
+          <p class="note">
+            Expected: hidden content, code/pre, input, and textarea values should
+            not be modified. Buttons and links above may be scanned only when
+            placement is safe.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <h3>Hidden element</h3>
+            <p class="hidden-example">Hidden price should stay untouched: $777</p>
+            <p class="muted">A hidden $777 example exists in this card.</p>
+          </article>
+
+          <article class="card">
+            <h3>Code and pre</h3>
+            <p>Inline code: <code>const price = "$123.45";</code></p>
+            <pre>Example log: 224 900 AMD and 10 kg should remain code text.</pre>
+          </article>
+
+          <article class="card">
+            <h3>Form fields</h3>
+            <label>
+              Input value
+              <input value="100 AED" />
+            </label>
+            <label>
+              Textarea value
+              <textarea>180 cm and $1,234.56</textarea>
+            </label>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="dynamic-title">
+        <div class="section-header">
+          <h2 id="dynamic-title">Dynamic Content</h2>
+          <p class="note">
+            Expected: clicking either button should trigger the content script's
+            mutation observer and render updated conversions once, without
+            duplicate badges.
+          </p>
+        </div>
+
+        <div id="dynamic-output" class="dynamic-output">
+          <article class="card" id="spa-card">
+            Initial SPA-like text: 75 EUR and 2 km
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const dynamicOutput = document.querySelector("#dynamic-output");
+      const spaCard = document.querySelector("#spa-card");
+      let addCount = 0;
+      let replaceCount = 0;
+
+      document.querySelector("#add-dynamic").addEventListener("click", () => {
+        addCount += 1;
+
+        const card = document.createElement("article");
+        card.className = "card";
+        card.innerHTML = `
+          <h3>Inserted batch ${addCount}</h3>
+          <p>Inserted currency: $1 250 000</p>
+          <p>Inserted AMD symbol amount: 1 224 900 ֏</p>
+          <p>Inserted unit: 10000kg</p>
+          <p>Inserted temperature: 20 °c</p>
+        `;
+
+        dynamicOutput.append(card);
+      });
+
+      document.querySelector("#replace-dynamic").addEventListener("click", () => {
+        replaceCount += 1;
+        spaCard.textContent =
+          replaceCount % 2 === 0
+            ? "SPA replacement text: 80 eur and 180 CM"
+            : "SPA replacement text: 869 900 ֏ and 68 °F";
+      });
+    </script>
+  </body>
+</html>

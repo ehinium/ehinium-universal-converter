@@ -5,10 +5,13 @@ type ExpectedUnit = {
   amount: number;
   unit: UnitCode;
   category: UnitCategory;
+  raw?: string;
 };
 
 function expectUnits(text: string, expected: ExpectedUnit[]): void {
-  const actual = parseUnits(text).map(({ amount, unit, category }) => ({
+  const expectsRaw = expected.some((match) => match.raw !== undefined);
+  const actual = parseUnits(text).map(({ raw, amount, unit, category }) => ({
+    ...(expectsRaw ? { raw } : {}),
     amount,
     unit,
     category,
@@ -19,6 +22,15 @@ function expectUnits(text: string, expected: ExpectedUnit[]): void {
       `${JSON.stringify(text)}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`
     );
   }
+}
+
+function expectOneCompleteUnit(
+  text: string,
+  amount: number,
+  unit: UnitCode,
+  category: UnitCategory
+): void {
+  expectUnits(text, [{ raw: text, amount, unit, category }]);
 }
 
 expectUnits("10 kg", [{ amount: 10, unit: "kg", category: "weight" }]);
@@ -37,6 +49,16 @@ expectUnits("12 inches and 3 pounds", [
   { amount: 12, unit: "in", category: "length" },
   { amount: 3, unit: "lb", category: "weight" },
 ]);
+
+expectOneCompleteUnit("10 000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("10\u00a0000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("10\u202f000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("10\u2009000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("10'000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("10’000 kg", 10000, "kg", "weight");
+expectOneCompleteUnit("1,234.5 km", 1234.5, "km", "length");
+expectOneCompleteUnit("1.234,5 km", 1234.5, "km", "length");
+expectOneCompleteUnit("1 234,5 km", 1234.5, "km", "length");
 
 for (const falsePositive of [
   "BN59-01312G",

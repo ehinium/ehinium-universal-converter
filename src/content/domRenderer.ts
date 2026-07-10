@@ -3,9 +3,10 @@ import {
   type CurrencyMatch,
 } from "../utils/currencyParser";
 import {
+  formatConvertedCurrency,
+  formatConvertedUnit,
   formatSourceCurrency,
   formatSourceUnit,
-  formatUnitLabel,
 } from "../utils/displayFormatting";
 import type {
   BadgeStyle,
@@ -43,6 +44,8 @@ export type RenderConversionOptions = {
   enabled: boolean;
   targetCurrency: string;
   converterMode: ConverterMode;
+  renderCurrencies?: boolean;
+  renderUnits?: boolean;
   badgeStyle: BadgeStyle;
   badgeVisibility: BadgeVisibility;
   unitSystem: UnitSystem;
@@ -64,14 +67,18 @@ const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
 const UNSAFE_BADGE_PLACEMENT_SELECTOR = [
   ".twisterSlotDiv",
   ".twisterSwatchWrapper",
-  ".a-button",
-  '[role="button"]',
-  "[aria-pressed]",
   "#promoPriceBlockMessage_feature_div",
   "#vouchers_feature_div",
   '[id*="coupon"]',
   '[id*="promo"]',
   '[id*="promotion"]',
+].join(", ");
+const UNSAFE_INTERACTIVE_CONTROL_SELECTOR = [
+  "input",
+  "select",
+  "textarea",
+  "option",
+  '[contenteditable="true"]',
 ].join(", ");
 const MAX_BADGE_VERTICAL_DISTANCE = 12;
 const PROMO_TEXT_PATTERN =
@@ -84,22 +91,13 @@ const UNIT_EXCLUDED_SELECTOR = [
   "pre",
   "input",
   "textarea",
+  "select",
+  "option",
+  '[contenteditable="true"]',
   "[data-ehinium-badge]",
   "[data-ehinium-converted]",
   "[data-ehinium-ignore]",
 ].join(", ");
-
-function formatAmount(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(2)}`;
-  }
-}
 
 function formatTooltip(source: string, converted: string): string {
   return `${source} → ${converted}`;
@@ -140,7 +138,8 @@ function shouldSkipNode(node: Text): boolean {
   return (
     !parent ||
     isInsideExcludedContent(parent) ||
-    parent.closest(HIDDEN_PRICE_SELECTOR) !== null
+    parent.closest(HIDDEN_PRICE_SELECTOR) !== null ||
+    parent.closest(UNSAFE_INTERACTIVE_CONTROL_SELECTOR) !== null
   );
 }
 
@@ -165,22 +164,6 @@ function getUnitBadgeKey(
   };
 }
 
-function formatUnitAmount(
-  amount: number,
-  unit: UnitCode,
-  useAutoFormatting: boolean
-): string {
-  const formattedAmount = new Intl.NumberFormat(
-    undefined,
-    useAutoFormatting
-      ? { maximumSignificantDigits: 2 }
-      : { maximumFractionDigits: 2 }
-  ).format(amount);
-  const label = formatUnitLabel(unit);
-
-  return `${formattedAmount} ${label}`;
-}
-
 function normalizeDisplayText(value: string): string {
   return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 }
@@ -195,7 +178,8 @@ function shouldSkipUnitNode(node: Text): boolean {
   return (
     !parent ||
     isInsideExcludedContent(parent) ||
-    parent.closest(UNIT_EXCLUDED_SELECTOR) !== null
+    parent.closest(UNIT_EXCLUDED_SELECTOR) !== null ||
+    parent.closest(UNSAFE_INTERACTIVE_CONTROL_SELECTOR) !== null
   );
 }
 
@@ -337,11 +321,7 @@ function renderUnitConversions(
         continue;
       }
 
-      const formattedAmount = formatUnitAmount(
-        convertedAmount,
-        targetUnit,
-        preferredTarget === "auto" && options.unitSystem === "auto"
-      );
+      const formattedAmount = formatConvertedUnit(convertedAmount, targetUnit);
 
       if (normalizeDisplayText(formattedAmount) === normalizeDisplayText(match.raw)) {
         continue;
@@ -420,8 +400,12 @@ export function renderConversions(
 
   const nodes = Array.from(textNodes);
   let renderedCount = 0;
+  const shouldRenderCurrencies =
+    options.renderCurrencies ?? options.converterMode !== "units";
+  const shouldRenderUnits =
+    options.renderUnits ?? options.converterMode !== "currencies";
 
-  if (options.converterMode !== "units") {
+  if (shouldRenderCurrencies) {
     for (const match of detectGroupedPrices(document)) {
     const currencyMatch: CurrencyMatch = {
       raw: `${match.currency} ${match.amount}`,
@@ -491,7 +475,7 @@ export function renderConversions(
       continue;
     }
 
-    const formattedAmount = formatAmount(
+    const formattedAmount = formatConvertedCurrency(
       convertedAmount,
       options.targetCurrency
     );
@@ -642,7 +626,7 @@ export function renderConversions(
         continue;
       }
 
-      const formattedAmount = formatAmount(
+      const formattedAmount = formatConvertedCurrency(
         convertedAmount,
         options.targetCurrency
       );
@@ -704,7 +688,7 @@ export function renderConversions(
     }
   }
 
-  if (options.converterMode !== "currencies") {
+  if (shouldRenderUnits) {
     renderedCount += renderUnitConversions(nodes, options);
   }
 

@@ -3,9 +3,10 @@ import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
 import { parseCurrencies } from "../utils/currencyParser";
 import {
+  formatConvertedCurrency,
+  formatConvertedUnit,
   formatSourceCurrency,
   formatSourceUnit,
-  formatUnitLabel,
 } from "../utils/displayFormatting";
 import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
 import { parseUnits } from "../utils/unitParser";
@@ -19,32 +20,6 @@ export type ManualConversionResult = {
   source: string;
   converted: string;
 };
-
-function formatCurrency(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toFixed(2)}`;
-  }
-}
-
-function formatUnit(
-  amount: number,
-  unit: UnitCode,
-  useAutoFormatting: boolean
-): string {
-  const formattedAmount = new Intl.NumberFormat(
-    undefined,
-    useAutoFormatting
-      ? { maximumSignificantDigits: 2 }
-      : { maximumFractionDigits: 2 }
-  ).format(amount);
-  return `${formattedAmount} ${formatUnitLabel(unit)}`;
-}
 
 function getTargetUnit(match: UnitMatch, settings: UserSettings): UnitCode | null {
   const exactTarget =
@@ -80,7 +55,7 @@ async function convertFirstCurrency(
     ? null
     : {
         source: formatSourceCurrency(match.amount, match.currency),
-        converted: formatCurrency(converted, settings.targetCurrency),
+        converted: formatConvertedCurrency(converted, settings.targetCurrency),
       };
 }
 
@@ -106,20 +81,9 @@ function convertFirstUnit(
     return null;
   }
 
-  const exactTarget =
-    match.category === "length"
-      ? settings.targetLengthUnit
-      : match.category === "weight"
-        ? settings.targetWeightUnit
-        : settings.targetTemperatureUnit;
-
   return {
     source: formatSourceUnit(match.amount, match.unit),
-    converted: formatUnit(
-      converted,
-      targetUnit,
-      exactTarget === "auto" && settings.unitSystem === "auto"
-    ),
+    converted: formatConvertedUnit(converted, targetUnit),
   };
 }
 
