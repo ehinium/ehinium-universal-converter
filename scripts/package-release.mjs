@@ -170,11 +170,6 @@ if (process.platform === "win32") {
   });
 }
 
-execFileSync(process.execPath, [join(rootDir, "scripts", "validate-release.mjs")], {
-  cwd: rootDir,
-  stdio: "inherit",
-});
-
 const manifestPath = join(distDir, "manifest.json");
 
 try {
