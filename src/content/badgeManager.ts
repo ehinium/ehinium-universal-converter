@@ -41,7 +41,6 @@ type EffectiveBackground = {
 
 const BADGE_SELECTOR = '[data-ehinium-badge="true"]';
 const BADGE_KEY_ATTRIBUTE = "data-ehinium-key";
-const PRICE_KEY_ATTRIBUTE = "data-ehinium-price-key";
 const PRICE_GROUP_ATTRIBUTE = "data-ehinium-price-group";
 const PRICE_GROUP_SELECTOR = `[${PRICE_GROUP_ATTRIBUTE}="true"]`;
 const INLINE_PRICE_SELECTOR = [
@@ -367,7 +366,7 @@ export function createBadge(
   badge.style.pointerEvents = "auto";
   badge.style.cursor = "pointer";
   badge.style.position = "relative";
-  badge.style.zIndex = "2147483647";
+  badge.style.zIndex = "auto";
 
   if (badgeStyle === "compact") {
     badge.style.padding = "1px 4px";
@@ -480,12 +479,6 @@ export function insertBadgeAfter(
     anchor.insertAdjacentElement("afterend", badge);
   }
 
-  const serializedKey = badge.getAttribute(BADGE_KEY_ATTRIBUTE);
-
-  if (serializedKey !== null) {
-    getPriceContainer(anchor).setAttribute(PRICE_KEY_ATTRIBUTE, serializedKey);
-  }
-
   applyBadgeColorContext(
     badge,
     anchor,
@@ -506,12 +499,6 @@ export function insertBadgeAfterTextNode(
 
   parent.insertBefore(badge, node.nextSibling);
 
-  const serializedKey = badge.getAttribute(BADGE_KEY_ATTRIBUTE);
-
-  if (serializedKey !== null) {
-    getPriceContainer(parent).setAttribute(PRICE_KEY_ATTRIBUTE, serializedKey);
-  }
-
   applyBadgeColorContext(
     badge,
     parent,
@@ -531,10 +518,6 @@ export function getPriceContainer(anchor: HTMLElement): HTMLElement {
 export function badgeExists(anchor: HTMLElement, key: BadgeIdentity): boolean {
   const serializedKey = serializeBadgeKey(key);
   const priceContainer = getPriceContainer(anchor);
-
-  if (priceContainer.getAttribute(PRICE_KEY_ATTRIBUTE) === serializedKey) {
-    return true;
-  }
 
   for (const badge of priceContainer.querySelectorAll(BADGE_SELECTOR)) {
     if (isMatchingBadge(badge, serializedKey)) {
@@ -573,17 +556,7 @@ export function removeBadges(root: ParentNode = document): void {
   removeExtensionOwnedTitles(root);
 
   if (root instanceof HTMLElement && root.matches(BADGE_SELECTOR)) {
-    const anchor = root.previousElementSibling;
-    const parent = root.parentElement;
     const group = root.closest<HTMLElement>(PRICE_GROUP_SELECTOR);
-
-    if (anchor instanceof HTMLElement) {
-      getPriceContainer(anchor).removeAttribute(PRICE_KEY_ATTRIBUTE);
-    }
-
-    if (parent) {
-      getPriceContainer(parent).removeAttribute(PRICE_KEY_ATTRIBUTE);
-    }
 
     root.remove();
 
@@ -596,19 +569,6 @@ export function removeBadges(root: ParentNode = document): void {
 
   for (const badge of root.querySelectorAll(BADGE_SELECTOR)) {
     badge.remove();
-  }
-
-  if (
-    root instanceof HTMLElement &&
-    root.hasAttribute(PRICE_KEY_ATTRIBUTE)
-  ) {
-    root.removeAttribute(PRICE_KEY_ATTRIBUTE);
-  }
-
-  for (const priceContainer of root.querySelectorAll(
-    `[${PRICE_KEY_ATTRIBUTE}]`
-  )) {
-    priceContainer.removeAttribute(PRICE_KEY_ATTRIBUTE);
   }
 
   unwrapEmptyPriceGroups(root);

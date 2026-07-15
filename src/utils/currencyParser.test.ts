@@ -1,5 +1,13 @@
 import { parseCurrencies } from "./currencyParser";
 
+function expectEqual<T>(actual: T, expected: T, description: string): void {
+  if (actual !== expected) {
+    throw new Error(
+      `${description}: expected ${String(expected)}, received ${String(actual)}`
+    );
+  }
+}
+
 function expectCurrencies(
   text: string,
   expected: Array<{ amount: number; currency: string }>
@@ -58,7 +66,6 @@ for (const falsePositive of [
   "Product 5%",
   "iPhone 15",
   "12.99 $",
-  "12.99 €",
   "12.99 £",
   "12.99 ¥",
 ]) {
@@ -120,6 +127,60 @@ expectSingleCurrencyMatch("1,234.56 CLP$", {
   amount: 1234.56,
   currency: "CLP",
 });
+
+for (const text of [
+  "4.99€",
+  "4.99€/month",
+  "4.99€ / month",
+  "4.99€ per month",
+  "4.99€ each / month",
+]) {
+  expectSingleCurrencyMatch(text, { raw: "4.99€", amount: 4.99, currency: "EUR" });
+}
+
+for (const text of [
+  "TRY 99/month",
+  "TRY 99 / month",
+  "TRY 99 per month",
+  "$19.99/mo",
+  "19.99 USD/month",
+  "13.99€ / month after trial",
+  "TRY 55 per month after",
+  "TRY 135 / month",
+  "TRY 165 / month",
+]) {
+  const expectedCurrency =
+    text.includes("€") ? "EUR" : text.includes("$") || text.includes("USD") ? "USD" : "TRY";
+  const amount = Number(text.match(/\d+(?:\.\d+)?/u)?.[0]);
+  expectCurrencies(text, [{ amount, currency: expectedCurrency }]);
+}
+
+expectCurrencyMatches(
+  "3.99€ / month with ads or 4.99€ / month without ads",
+  [
+    { raw: "3.99€", amount: 3.99, currency: "EUR" },
+    { raw: "4.99€", amount: 4.99, currency: "EUR" },
+  ]
+);
+
+{
+  const input = "Before 4.99€ / month after trial";
+  const match = parseCurrencies(input)[0];
+  expectEqual(match?.raw, "4.99€", "recurring price raw range");
+  expectEqual(match?.start, input.indexOf("4.99€"), "recurring price start");
+  expectEqual(match?.end, input.indexOf("4.99€") + "4.99€".length, "recurring price end");
+  expectEqual(match?.tokenType, "symbol", "recurring price token type");
+}
+
+for (const text of [
+  "4.99/month",
+  "version 4.99/5",
+  "12/05/2026",
+  "v2.99/build",
+  "score 4.99/10",
+]) {
+  expectEqual(parseCurrencies(text).length, 0, `non-currency slash expression ${text}`);
+}
 expectSingleCurrencyMatch("1,234.56 MOP$", {
   raw: "1,234.56 MOP$",
   amount: 1234.56,
@@ -200,7 +261,7 @@ expectCurrencies("֏ 24,500,000", [{ amount: 24500000, currency: "AMD" }]);
 expectCurrencies("19.99 ₾", [{ amount: 19.99, currency: "GEL" }]);
 expectCurrencies("1,200 ₺", [{ amount: 1200, currency: "TRY" }]);
 expectCurrencies("500 ₴", [{ amount: 500, currency: "UAH" }]);
-expectCurrencies("12.99€", []);
+expectCurrencies("12.99€", [{ amount: 12.99, currency: "EUR" }]);
 expectCurrencies("productUSD 12.99", []);
 expectCurrencies("USD 12.99model", []);
 expectCurrencies("Product eur 80", []);

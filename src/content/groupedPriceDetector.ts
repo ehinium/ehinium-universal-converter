@@ -33,6 +33,7 @@ const contextualFallbackSymbols = new Map<string, string>([
   ["JP¥", "JPY"],
 ]);
 const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
+const GROUPED_PRICE_SELECTOR = ".a-price";
 
 function normalizeSymbol(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
@@ -124,7 +125,7 @@ export function detectGroupedPrices(root: ParentNode): GroupedPriceMatch[] {
   const matches: GroupedPriceMatch[] = [];
   const seenAnchors = new Set<HTMLElement>();
 
-  for (const anchor of root.querySelectorAll<HTMLElement>(".a-price")) {
+  for (const anchor of root.querySelectorAll<HTMLElement>(GROUPED_PRICE_SELECTOR)) {
     if (
       seenAnchors.has(anchor) ||
       isInsideExcludedContent(anchor) ||
@@ -151,5 +152,76 @@ export function detectGroupedPrices(root: ParentNode): GroupedPriceMatch[] {
     });
   }
 
+  return matches;
+}
+
+export function detectGroupedPricesForTextNodes(
+  textNodes: readonly Text[]
+): GroupedPriceMatch[] {
+  const anchors = new Set<HTMLElement>();
+
+  for (const node of textNodes) {
+    const anchor = node.parentElement?.closest<HTMLElement>(GROUPED_PRICE_SELECTOR);
+    if (anchor) {
+      anchors.add(anchor);
+    }
+  }
+
+  const matches: GroupedPriceMatch[] = [];
+  for (const anchor of anchors) {
+    if (
+      isInsideExcludedContent(anchor) ||
+      anchor.closest(HIDDEN_PRICE_SELECTOR)
+    ) {
+      continue;
+    }
+    const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")
+      ?.textContent;
+    const symbol = symbolText ? normalizeSymbol(symbolText) : "";
+    const currency = symbol ? currencyBySymbol.get(symbol) : undefined;
+    const amount = parseGroupedAmount(anchor);
+    if (currency && amount !== null) {
+      matches.push({ amount, currency, anchor });
+    }
+  }
+  return matches;
+}
+
+export function detectGroupedPricesInRoots(
+  roots: readonly Node[]
+): GroupedPriceMatch[] {
+  const anchors = new Set<HTMLElement>();
+
+  for (const root of roots) {
+    const element = root instanceof Element ? root : root.parentElement;
+    const containingAnchor = element?.closest<HTMLElement>(GROUPED_PRICE_SELECTOR);
+    if (containingAnchor) {
+      anchors.add(containingAnchor);
+    }
+    if (element?.matches(GROUPED_PRICE_SELECTOR)) {
+      anchors.add(element as HTMLElement);
+    }
+    for (const anchor of element?.querySelectorAll<HTMLElement>(GROUPED_PRICE_SELECTOR) ?? []) {
+      anchors.add(anchor);
+    }
+  }
+
+  const matches: GroupedPriceMatch[] = [];
+  for (const anchor of anchors) {
+    if (
+      isInsideExcludedContent(anchor) ||
+      anchor.closest(HIDDEN_PRICE_SELECTOR)
+    ) {
+      continue;
+    }
+    const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")
+      ?.textContent;
+    const symbol = symbolText ? normalizeSymbol(symbolText) : "";
+    const currency = symbol ? currencyBySymbol.get(symbol) : undefined;
+    const amount = parseGroupedAmount(anchor);
+    if (currency && amount !== null) {
+      matches.push({ amount, currency, anchor });
+    }
+  }
   return matches;
 }

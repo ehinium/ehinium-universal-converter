@@ -12,10 +12,13 @@ const window = new Window();
 
 Object.assign(globalThis, {
   document: window.document,
+  Element: window.Element,
+  HTMLElement: window.HTMLElement,
   Text: window.Text,
 });
 
 const rates: ExchangeRates = {
+  AED: 3.67,
   EUR: 0.92,
   USD: 1,
 };
@@ -28,6 +31,35 @@ function settings(overrides: Partial<UserSettings> = {}): UserSettings {
     targetCurrency: "USD",
     ...overrides,
   };
+}
+
+{
+  const root = document.createElement("div");
+  root.innerHTML = `
+    <span class="a-price">
+      <span class="a-offscreen">AED 118.94</span>
+      <span aria-hidden="true">
+        <span class="a-price-symbol">AED</span>
+        <span class="a-price-whole">118</span>
+        <span class="a-price-fraction">94</span>
+      </span>
+    </span>
+  `;
+  document.body.append(root);
+  const dependencies = createDependencies({
+    collectTextNodesForScan: async () => [],
+  });
+  const result = await scanConversionRoots(
+    { reason: "mutation", roots: [root] },
+    settings({ converterMode: "currencies" }),
+    dependencies
+  );
+
+  expectEqual(result.renderedCount, 1, "grouped-only root rendered count");
+  expectEqual(dependencies.rateCalls.length, 1, "grouped-only root loads rates");
+  expectEqual(dependencies.renderCalls.length, 1, "grouped-only root reaches renderer");
+  expectEqual(dependencies.renderCalls[0]?.scanRoots?.[0], root, "grouped-only render receives bounded roots");
+  root.remove();
 }
 
 function expectEqual<T>(actual: T, expected: T, description: string): void {

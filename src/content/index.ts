@@ -4,7 +4,7 @@ import {
 } from "../services/settings";
 import { isDomainAllowed } from "../services/domainRules";
 import type { UserSettings } from "../types/settings";
-import type { ExtensionMessage } from "../shared/messages";
+import type { DiagnosticsMessage, ExtensionMessage } from "../shared/messages";
 import {
   clearDebugEvents,
   debugLog,
@@ -15,13 +15,27 @@ import {
 import { resetRenderedConversions } from "./domRenderer";
 import { scanConversionRoots } from "./conversionScan";
 import { getClosestHoverTarget } from "./hoverRegistry";
-import { observeDomChanges } from "./observer";
+import {
+  finalizePendingMutationDiagnostics,
+  observeDomChanges,
+} from "./observer";
+import { consumeReconciliationCounters } from "./currencyMatchState";
 import { hideTooltip, showTooltip } from "./tooltip";
 import { refreshContentSettings } from "./settingsRefresh";
 import {
   createScanScheduler,
   type ScanRequest,
 } from "./scanScheduler";
+import {
+  capturePageDiagnostics,
+  clearPageDiagnosticSession,
+  getLatestPageDiagnosticReport,
+  startElementDiagnosticPicker,
+} from "./pageDiagnostics";
+import {
+  startBadgeVisibilityManager,
+  stopBadgeVisibilityManager,
+} from "./badgeVisibility";
 
 declare global {
   interface Window {
@@ -83,6 +97,8 @@ function startObserver(): void {
     return;
   }
 
+  startBadgeVisibilityManager();
+
   stopObserver = observeDomChanges((roots) => {
     if (currentSettings?.enabled && domainIsAllowed(currentSettings)) {
       scanScheduler.schedule({
@@ -96,6 +112,7 @@ function startObserver(): void {
 function stopObserving(): void {
   stopObserver?.();
   stopObserver = null;
+  stopBadgeVisibilityManager();
 }
 
 function registerHoverListeners(): void {
@@ -208,7 +225,7 @@ function registerMessageListener(): void {
     return;
   }
 
-  chrome.runtime.onMessage.addListener((message: unknown) => {
+  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (
       typeof message !== "object" ||
       message === null ||
@@ -220,6 +237,37 @@ function registerMessageListener(): void {
     if ((message as Partial<ExtensionMessage>).type === "settings:changed") {
       void applySettingsFromMessage().catch(logDebugError);
       return false;
+    }
+
+    if (__EUC_DIAGNOSTICS__) {
+      const diagnosticsMessage = message as Partial<DiagnosticsMessage>;
+
+      if (diagnosticsMessage.type === "diagnostics:capture-page") {
+        void capturePageDiagnostics(currentSettings)
+          .then((report) => sendResponse({ ok: true, report }))
+          .catch((error: unknown) => sendResponse({
+            ok: false,
+            error: getErrorReason(error),
+          }));
+        return true;
+      }
+
+      if (diagnosticsMessage.type === "diagnostics:start-picker") {
+        startElementDiagnosticPicker(currentSettings);
+        sendResponse({ ok: true, started: true });
+        return false;
+      }
+
+      if (diagnosticsMessage.type === "diagnostics:get-report") {
+        sendResponse({ ok: true, report: getLatestPageDiagnosticReport() });
+        return false;
+      }
+
+      if (diagnosticsMessage.type === "diagnostics:clear") {
+        clearPageDiagnosticSession();
+        sendResponse({ ok: true });
+        return false;
+      }
     }
 
     if ((message as Partial<ExtensionMessage>).type !== "SHOW_MANUAL_CONVERSION") {
@@ -286,6 +334,10 @@ async function scanConversions(request: ScanRequest): Promise<number> {
     },
     debugLog,
   });
+
+  if (request.reason === "mutation" && __EUC_DIAGNOSTICS__) {
+    finalizePendingMutationDiagnostics(consumeReconciliationCounters());
+  }
 
   if (result.renderedCount > 0) {
     console.log("[EUC] Conversions rendered:", result.renderedCount);

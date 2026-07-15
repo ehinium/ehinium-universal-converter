@@ -1,19 +1,73 @@
-import { isInsideExcludedContent } from "./domExclusions";
+import {
+  getContentExclusionDetail,
+} from "./domExclusions";
 
-const EXCLUDED_TEXT_NODE_SELECTOR = [
-  ".a-price",
+const EXCLUDED_TEXT_NODE_SELECTORS = [
   ".a-offscreen",
   '[aria-hidden="true"]',
-  "[data-ehinium-price-key]",
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
   "[data-ehinium-tooltip]",
-].join(", ");
+];
+
+const EXCLUDED_TEXT_NODE_SELECTOR = EXCLUDED_TEXT_NODE_SELECTORS.join(", ");
 
 export type TextNodeScanOptions = {
   maxNodes?: number;
 };
+
+export type TextNodeScanExclusion = {
+  reason: string;
+  rule: string;
+  element: Element | null;
+  category: "extension-ui" | "source-content";
+};
+
+export function getTextNodeScanExclusion(node: Text): TextNodeScanExclusion | null {
+  const parent = node.parentElement;
+
+  if (!parent) {
+    return {
+      reason: "Text node has no parent element",
+      rule: "missing-parent",
+      element: null,
+      category: "source-content",
+    };
+  }
+
+  const contentDetail = getContentExclusionDetail(parent);
+  if (contentDetail) {
+    return contentDetail;
+  }
+
+  for (const selector of EXCLUDED_TEXT_NODE_SELECTORS) {
+    const excludedAncestor = parent.closest(selector);
+    if (excludedAncestor) {
+      return {
+        reason: `Matched scanner exclusion selector ${selector} on <${excludedAncestor.tagName.toLowerCase()}>`,
+        rule: selector,
+        element: excludedAncestor,
+        category: /ehinium/iu.test(selector) ? "extension-ui" : "source-content",
+      };
+    }
+  }
+
+  if (!node.textContent?.trim()) {
+    return {
+      reason: "Text node is empty or whitespace-only",
+      rule: "empty-text",
+      element: parent,
+      category: "source-content",
+    };
+  }
+
+  return null;
+}
+
+export function getTextNodeScanExclusionReason(node: Text): string | null {
+  return getTextNodeScanExclusion(node)?.reason ?? null;
+}
 
 export function isHiddenOrDisconnectedRoot(root: Node): boolean {
   if (!root.isConnected) {
@@ -44,9 +98,7 @@ export function getTextNodes(
 
     if (
       parent &&
-      !isInsideExcludedContent(parent) &&
-      !parent.closest(EXCLUDED_TEXT_NODE_SELECTOR) &&
-      root.textContent?.trim()
+      getTextNodeScanExclusionReason(root) === null
     ) {
       return [root];
     }
@@ -65,14 +117,7 @@ export function getTextNodes(
           return NodeFilter.FILTER_REJECT;
         }
 
-        if (
-          isInsideExcludedContent(parent) ||
-          parent.closest(EXCLUDED_TEXT_NODE_SELECTOR)
-        ) {
-          return NodeFilter.FILTER_REJECT;
-        }
-
-        if (!node.textContent?.trim()) {
+        if (getTextNodeScanExclusionReason(node as Text) !== null) {
           return NodeFilter.FILTER_REJECT;
         }
 

@@ -36,6 +36,7 @@ import {
   formatManualConversionInput,
 } from "../popup/manualConversion";
 import { formatRateStatus, refreshRateStatus } from "../popup/rateStatus";
+import { DiagnosticsPanel } from "../popup/DiagnosticsPanel";
 
 const MANUAL_CONVERSION_DEBOUNCE_MS = 250;
 const COPY_FEEDBACK_DURATION_MS = 900;
@@ -844,6 +845,8 @@ export function SettingsApp({ surface }: SettingsAppProps) {
               <p className="site-unavailable">Site controls are unavailable on this page.</p>
             )}
           </div>
+
+          {__EUC_DIAGNOSTICS__ ? <DiagnosticsPanel /> : null}
 
           <div className="popup-block">
             <button

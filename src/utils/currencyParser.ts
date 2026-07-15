@@ -5,11 +5,13 @@ export type CurrencyMatch = {
   raw: string;
   amount: number;
   currency: string;
+  start: number;
+  end: number;
+  tokenType: "iso" | "symbol" | "localized-name";
+  confidence: number;
 };
 
 type IndexedCurrencyMatch = CurrencyMatch & {
-  index: number;
-  end: number;
   specificity: number;
 };
 
@@ -61,22 +63,6 @@ const ambiguousSymbolDefaults = new Map<string, string>([
   ["¥", "JPY"],
 ]);
 const unsupportedAmbiguousSymbols = new Set(["R", "K", "F", "L", "P", "Q", "kr"]);
-const unsafeSuffixSymbols = new Set([
-  "$",
-  "€",
-  "£",
-  "¥",
-  "R",
-  "K",
-  "F",
-  "L",
-  "P",
-  "Q",
-  "kr",
-  "%",
-  "+",
-]);
-
 const symbolToCurrency = new Map<string, string>();
 const suffixSymbolToCurrency = new Map<string, string>();
 
@@ -112,8 +98,8 @@ for (const [symbol, codes] of identifierCurrencies) {
 for (const [symbol, codes] of identifierCurrencies) {
   if (
     currencyByCode.has(symbol) ||
-    unsafeSuffixSymbols.has(symbol) ||
     /^[A-Za-z]$/u.test(symbol) ||
+    unsupportedAmbiguousSymbols.has(symbol) ||
     codes.size !== 1
   ) {
     continue;
@@ -121,7 +107,7 @@ for (const [symbol, codes] of identifierCurrencies) {
 
   const currency = codes.values().next().value;
 
-  if (currency) {
+  if (currency && codes.has(currency)) {
     suffixSymbolToCurrency.set(symbol, currency);
   }
 }
@@ -202,6 +188,7 @@ function collectMatches(
   identifierIndex: number,
   amountIndex: number,
   resolveCurrency: (identifier: string) => string | undefined,
+  tokenType: CurrencyMatch["tokenType"],
   requireFullTextForNonCanonicalIdentifier = false
 ): IndexedCurrencyMatch[] {
   const matches: IndexedCurrencyMatch[] = [];
@@ -235,15 +222,24 @@ function collectMatches(
     const isAccountingNegative =
       text[matchIndex - 1] === "(" && text[matchEnd] === ")";
     const raw = isAccountingNegative ? `(${match[0]})` : match[0];
-    const index = isAccountingNegative ? matchIndex - 1 : matchIndex;
+    const start = isAccountingNegative ? matchIndex - 1 : matchIndex;
     const amount = isAccountingNegative ? -Math.abs(parsedAmount) : parsedAmount;
+    const identifierSupport = getCurrencyIdentifierSupport(identifier);
+    const confidence =
+      tokenType === "iso"
+        ? 1
+        : identifierSupport.ambiguous
+          ? 0.75
+          : 0.9;
 
     matches.push({
       raw,
       amount,
       currency: definition.code,
-      index,
-      end: index + raw.length,
+      start,
+      end: start + raw.length,
+      tokenType,
+      confidence,
       specificity: identifier.length,
     });
   }
@@ -261,17 +257,17 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
   const resolveSuffixSymbol = (symbol: string): string | undefined =>
     suffixSymbolToCurrency.get(symbol);
   const codeMatches = [
-    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode, true),
-    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode, true),
+    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode, "iso", true),
+    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode, "iso", true),
   ];
   const symbolMatches = [
-    ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol),
-    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSuffixSymbol),
+    ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol, "symbol"),
+    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSuffixSymbol, "symbol"),
   ];
   const uniqueMatches = new Map<string, IndexedCurrencyMatch>();
 
   for (const match of [...codeMatches, ...symbolMatches]) {
-    const key = `${match.index}\u0000${match.end}\u0000${match.raw}\u0000${match.amount}\u0000${match.currency}`;
+    const key = `${match.start}\u0000${match.end}\u0000${match.raw}\u0000${match.amount}\u0000${match.currency}`;
 
     if (!uniqueMatches.has(key)) {
       uniqueMatches.set(key, match);
@@ -282,16 +278,14 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
 
   for (const candidate of [...uniqueMatches.values()].sort(
     (left, right) =>
-      left.index - right.index ||
-      right.raw.length - left.raw.length ||
-      right.specificity - left.specificity
+      left.start - right.start ||
+      (right.end - right.start) - (left.end - left.start) ||
+      right.specificity - left.specificity ||
+      right.confidence - left.confidence
   )) {
     const overlappingIndex = resolvedMatches.findIndex(
       (existing) =>
-        existing.currency === candidate.currency &&
-        Math.abs(existing.amount) === Math.abs(candidate.amount) &&
-        candidate.index < existing.end &&
-        existing.index < candidate.end
+        candidate.start < existing.end && existing.start < candidate.end
     );
 
     if (overlappingIndex === -1) {
@@ -300,16 +294,28 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
     }
 
     const existing = resolvedMatches[overlappingIndex];
+    const candidateSpan = candidate.end - candidate.start;
+    const existingSpan = existing.end - existing.start;
     if (
-      candidate.raw.length > existing.raw.length ||
-      (candidate.raw.length === existing.raw.length &&
-        candidate.specificity > existing.specificity)
+      candidateSpan > existingSpan ||
+      (candidateSpan === existingSpan && candidate.specificity > existing.specificity) ||
+      (candidateSpan === existingSpan &&
+        candidate.specificity === existing.specificity &&
+        candidate.confidence > existing.confidence)
     ) {
       resolvedMatches[overlappingIndex] = candidate;
     }
   }
 
   return resolvedMatches
-    .sort((left, right) => left.index - right.index)
-    .map(({ raw, amount, currency }) => ({ raw, amount, currency }));
+    .sort((left, right) => left.start - right.start)
+    .map((match) => ({
+      raw: match.raw,
+      amount: match.amount,
+      currency: match.currency,
+      start: match.start,
+      end: match.end,
+      tokenType: match.tokenType,
+      confidence: match.confidence,
+    }));
 }

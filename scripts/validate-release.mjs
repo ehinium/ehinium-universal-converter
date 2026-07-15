@@ -267,6 +267,27 @@ function validateForbiddenContents(files, label) {
   }
 }
 
+function validateNoDevelopmentDiagnostics(files, readContent, label) {
+  const markers = [
+    "ehinium-page-diagnostics/",
+    "diagnostics:start-picker",
+    "data-ehinium-diagnostics-picker",
+    "Capture current page",
+    "Development diagnostics",
+  ];
+
+  for (const file of files) {
+    if (!/\.(?:html|js|css)$/u.test(file)) {
+      continue;
+    }
+
+    const content = readContent(file);
+    if (markers.some((marker) => content.includes(marker))) {
+      addError(`${label} contains development page diagnostics: ${file}`);
+    }
+  }
+}
+
 function collectManifestReferences(manifest) {
   const references = [];
 
@@ -384,6 +405,16 @@ if (zipManifest) {
 
 validateForbiddenContents(distFiles, "dist");
 validateForbiddenContents(zipFiles, "release ZIP");
+validateNoDevelopmentDiagnostics(
+  distFiles,
+  (file) => readFileSync(join(distDir, file), "utf8"),
+  "dist"
+);
+validateNoDevelopmentDiagnostics(
+  zipFiles,
+  (file) => zipEntries.get(file)?.toString("utf8") ?? "",
+  "release ZIP"
+);
 
 if (distManifest && zipManifest) {
   const distManifestText = JSON.stringify(distManifest);

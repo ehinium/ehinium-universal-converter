@@ -105,6 +105,7 @@ expectEqual(
   );
   expectEqual(parentClicks, 0, "parent click count");
   expectEqual(badge.style.cursor, "pointer", "clickable cursor");
+  expectEqual(badge.style.zIndex, "auto", "badge remains in local stacking context");
 
   await wait(950);
 

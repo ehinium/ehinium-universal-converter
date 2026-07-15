@@ -218,6 +218,7 @@ const vite = await createServer({
   configFile: false,
   logLevel: "silent",
   plugins: [react()],
+  define: { __EUC_DIAGNOSTICS__: "false" },
   root: process.cwd(),
   server: { middlewareMode: true },
 });

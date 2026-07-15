@@ -7,6 +7,7 @@ import { debugLog, type DebugEvent } from "./debug";
 import { renderConversions, type RenderConversionOptions } from "./domRenderer";
 import type { ScanRequest } from "./scanScheduler";
 import { collectTextNodesForScan } from "./scanRoots";
+import { detectGroupedPricesInRoots } from "./groupedPriceDetector";
 
 export type ConversionScanResult = {
   scannedNodeCount: number;
@@ -58,12 +59,14 @@ export function renderCurrencyConversionsOnly(
   textNodes: readonly Text[],
   settings: UserSettings,
   rates: ExchangeRates,
+  scanRoots?: readonly Node[],
   render: ConversionScanDependencies["renderConversions"] = renderConversions
 ): number {
   return render(textNodes, {
     ...getRenderOptionsBase(settings),
     renderCurrencies: true,
     renderUnits: false,
+    scanRoots,
     convertAmount(match: CurrencyMatch) {
       return convertCurrency(
         match.amount,
@@ -87,9 +90,13 @@ export async function scanConversionRoots(
   const writeDebug = dependencies.debugLog ?? debugLog;
   const roots = request.roots ?? [document.body];
   const textNodes = await collect(roots);
+  const hasGroupedCurrencyCandidates =
+    textNodes.length === 0 &&
+    settings.converterMode !== "units" &&
+    detectGroupedPricesInRoots(roots).length > 0;
   let renderedCount = 0;
 
-  if (textNodes.length === 0) {
+  if (textNodes.length === 0 && !hasGroupedCurrencyCandidates) {
     writeDebug({
       type: "scan:skipped",
       reason: "No eligible text nodes",
@@ -144,6 +151,7 @@ export async function scanConversionRoots(
     textNodes,
     settings,
     ratesData.rates,
+    roots,
     render
   );
 

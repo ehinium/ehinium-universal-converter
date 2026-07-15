@@ -1,17 +1,77 @@
 import { isInsideExcludedContent } from "./domExclusions";
 import { isHiddenOrDisconnectedRoot } from "./domScanner";
 import { isProcessed } from "./processedNodes";
+import { releaseProcessedSourceTree } from "./currencyMatchState";
+import type { MutationBatchDiagnostic } from "../types/diagnostics";
 
 const EUC_OWNED_SELECTOR = [
   '[data-ehinium-badge="true"]',
   "[data-ehinium-tooltip]",
   "[data-ehinium-converted]",
-  "[data-ehinium-price-key]",
-  "[data-ehinium-price-group]",
   '[data-ehinium-ignore="true"]',
 ].join(", ");
 
 let stopActiveObserver: (() => void) | null = null;
+let nextMutationBatchId = 1;
+const mutationDiagnostics: MutationBatchDiagnostic[] = [];
+const MAX_MUTATION_DIAGNOSTICS = 100;
+
+function diagnosticsEnabled(): boolean {
+  return typeof __EUC_DIAGNOSTICS__ !== "undefined" && __EUC_DIAGNOSTICS__;
+}
+
+function describeMutationScope(node: Node): string {
+  const element = node instanceof Element ? node : node.parentElement;
+  if (!element) {
+    return "(detached)";
+  }
+  return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}`;
+}
+
+export function getMutationBatchDiagnostics(): MutationBatchDiagnostic[] {
+  return mutationDiagnostics.map((batch) => ({
+    ...batch,
+    affectedSourceScopes: [...batch.affectedSourceScopes],
+    preReconciliationSourceMatches: [...batch.preReconciliationSourceMatches],
+    warnings: [...batch.warnings],
+  }));
+}
+
+export function clearMutationBatchDiagnostics(): void {
+  mutationDiagnostics.length = 0;
+}
+
+export function finalizePendingMutationDiagnostics(counters: {
+  adoptedBadgeCount: number;
+  updatedBadgeCount: number;
+  removedStaleBadgeCount: number;
+  newlyRenderedBadgeCount: number;
+}): void {
+  const batch = [...mutationDiagnostics].reverse().find(
+    (item) => item.finalActiveBadgeCount === undefined && item.mutationCategory !== "extension-ui"
+  );
+  if (!batch) {
+    return;
+  }
+  Object.assign(batch, counters);
+  batch.finalActiveBadgeCount = document.querySelectorAll(
+    '[data-ehinium-badge="true"][data-ehinium-source-fingerprint]'
+  ).length;
+  const activeFingerprints = new Map<string, number>();
+  for (const badge of document.querySelectorAll<HTMLElement>(
+    '[data-ehinium-badge="true"][data-ehinium-source-fingerprint]'
+  )) {
+    const fingerprint = badge.dataset.ehiniumSourceFingerprint;
+    if (fingerprint) {
+      activeFingerprints.set(fingerprint, (activeFingerprints.get(fingerprint) ?? 0) + 1);
+    }
+  }
+  for (const [fingerprint, count] of activeFingerprints) {
+    if (count > 1) {
+      batch.warnings.push(`Source fingerprint ${fingerprint} has ${count} active badges`);
+    }
+  }
+}
 
 function isEucOwnedNode(node: Node): boolean {
   if (node instanceof Element) {
@@ -21,6 +81,29 @@ function isEucOwnedNode(node: Node): boolean {
   return node.parentElement?.closest(EUC_OWNED_SELECTOR) !== null;
 }
 
+export function isExtensionOwnedMutation(mutation: MutationRecord): boolean {
+  const affected = [
+    ...mutation.addedNodes,
+    ...mutation.removedNodes,
+  ];
+
+  if (mutation.type === "characterData") {
+    return isEucOwnedNode(mutation.target);
+  }
+
+  return affected.length > 0 && affected.every(isEucOwnedNode);
+}
+
+export function classifyMutationBatch(
+  mutations: readonly MutationRecord[]
+): "site-content" | "extension-ui" | "mixed" {
+  const extensionCount = mutations.filter(isExtensionOwnedMutation).length;
+  if (extensionCount === mutations.length) {
+    return "extension-ui";
+  }
+  return extensionCount === 0 ? "site-content" : "mixed";
+}
+
 function getMutationRoot(mutation: MutationRecord): Node | null {
   if (isEucOwnedNode(mutation.target) || isInsideExcludedContent(mutation.target)) {
     return null;
@@ -28,6 +111,12 @@ function getMutationRoot(mutation: MutationRecord): Node | null {
 
   if (mutation.type === "characterData") {
     return mutation.target.parentElement;
+  }
+
+  for (const node of mutation.removedNodes) {
+    if (!isEucOwnedNode(node)) {
+      releaseProcessedSourceTree(node);
+    }
   }
 
   for (const node of mutation.addedNodes) {
@@ -73,6 +162,44 @@ export function observeDomChanges(callback: (roots: Node[]) => void): () => void
     }
 
     const roots = collectMutationRoots(mutations);
+
+    if (diagnosticsEnabled()) {
+      const category = classifyMutationBatch(mutations);
+      const existingBadges = [...document.querySelectorAll<HTMLElement>(
+        '[data-ehinium-badge="true"][data-ehinium-source-fingerprint]'
+      )];
+      mutationDiagnostics.push({
+        batchId: `mutation-${nextMutationBatchId++}`,
+        timestamp: new Date().toISOString(),
+        mutationCategory: category,
+        mutationCount: mutations.length,
+        addedSourceNodeCount: mutations.reduce(
+          (count, mutation) => count + [...mutation.addedNodes].filter((node) => !isEucOwnedNode(node)).length,
+          0
+        ),
+        removedSourceNodeCount: mutations.reduce(
+          (count, mutation) => count + [...mutation.removedNodes].filter((node) => !isEucOwnedNode(node)).length,
+          0
+        ),
+        extensionOwnedMutationCount: mutations.filter(isExtensionOwnedMutation).length,
+        affectedSourceScopes: [...new Set(roots.map(describeMutationScope))],
+        preReconciliationSourceMatches: existingBadges
+          .map((badge) => badge.dataset.ehiniumSourceFingerprint)
+          .filter((value): value is string => Boolean(value)),
+        existingOwnedBadgeCount: existingBadges.length,
+        adoptedBadgeCount: 0,
+        updatedBadgeCount: 0,
+        removedStaleBadgeCount: 0,
+        newlyRenderedBadgeCount: 0,
+        finalActiveBadgeCount: category === "extension-ui"
+          ? existingBadges.length
+          : undefined,
+        warnings: [],
+      });
+      if (mutationDiagnostics.length > MAX_MUTATION_DIAGNOSTICS) {
+        mutationDiagnostics.splice(0, mutationDiagnostics.length - MAX_MUTATION_DIAGNOSTICS);
+      }
+    }
 
     if (roots.length === 0) {
       return;
