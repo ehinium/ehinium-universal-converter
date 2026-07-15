@@ -4,6 +4,7 @@ import type { RateProviderName } from "../types/rates";
 const providerLabels: Record<RateProviderName, string> = {
   frankfurter: "Frankfurter",
   fawaz: "Fawaz",
+  "frankfurter+fawaz": "Frankfurter + Fawaz",
 };
 
 function formatUpdatedAt(fetchedAt: number, now: number): string {

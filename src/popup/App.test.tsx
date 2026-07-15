@@ -517,7 +517,11 @@ try {
     "manual cleared state"
   );
 
-  expectEqual(networkRequestCount, 1, "manual conversion request count");
+  expectEqual(
+    networkRequestCount,
+    2,
+    "manual conversion primary and supplemental request count"
+  );
 
   await act(async () => {
     root.unmount();
@@ -573,7 +577,12 @@ try {
     refreshButton.click();
   });
   await waitFor(
-    () => expectEqual(networkRequestCount, 2, "manual load plus forced refresh"),
+    () =>
+      expectEqual(
+        networkRequestCount,
+        4,
+        "manual and forced primary plus supplemental requests"
+      ),
     "rate refresh request"
   );
   await waitFor(

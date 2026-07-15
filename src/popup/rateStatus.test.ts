@@ -32,6 +32,17 @@ expectEqual(
   "provider and rate date"
 );
 expectEqual(
+  formatRateStatus({
+    ...loadedStatus,
+    response: {
+      ...loadedStatus.response!,
+      provider: "frankfurter+fawaz",
+    },
+  }, now),
+  ["Updated 12 minutes ago", "Frankfurter + Fawaz source"],
+  "combined provider provenance"
+);
+expectEqual(
   formatRateStatus({ response: null, fetchedAt: null, lastErrorAt: null }, now),
   ["Not loaded yet"],
   "missing rate metadata"

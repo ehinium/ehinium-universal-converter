@@ -48,6 +48,48 @@ function hasMalformedApostropheGrouping(value: string): boolean {
   );
 }
 
+function isWesternGrouped(value: string, separator: "," | "."): boolean {
+  const escapedSeparator = separator === "." ? "\\." : separator;
+  return new RegExp(
+    `^[0-9]{1,3}(?:${escapedSeparator}[0-9]{3})+$`,
+    "u"
+  ).test(value);
+}
+
+function isIndianGrouped(value: string): boolean {
+  return /^[0-9]{1,2}(?:,[0-9]{2})+,[0-9]{3}$/u.test(value);
+}
+
+function hasMalformedCommaOrDotGrouping(value: string): boolean {
+  const unsigned = value.replace(/^[+-]/u, "");
+  const lastComma = unsigned.lastIndexOf(",");
+  const lastDot = unsigned.lastIndexOf(".");
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastDot > lastComma) {
+      const integer = unsigned.slice(0, lastDot);
+      return (
+        integer.includes(",") &&
+        !isWesternGrouped(integer, ",") &&
+        !isIndianGrouped(integer)
+      );
+    }
+
+    const integer = unsigned.slice(0, lastComma);
+    return integer.includes(".") && !isWesternGrouped(integer, ".");
+  }
+
+  if ((unsigned.match(/,/gu) ?? []).length > 1) {
+    return !isWesternGrouped(unsigned, ",") && !isIndianGrouped(unsigned);
+  }
+
+  if ((unsigned.match(/\./gu) ?? []).length > 1) {
+    return !isWesternGrouped(unsigned, ".");
+  }
+
+  return false;
+}
+
 export function normalizeNumberToken(raw: string): NormalizedNumber | null {
   let normalized = normalizeDigits(raw)
     .replace(/٬/g, ",")
@@ -62,13 +104,18 @@ export function normalizeNumberToken(raw: string): NormalizedNumber | null {
 
   if (
     hasMalformedRepeatedPunctuation(normalized) ||
-    hasMalformedApostropheGrouping(normalized)
+    hasMalformedApostropheGrouping(normalized) ||
+    hasMalformedCommaOrDotGrouping(normalized)
   ) {
     return null;
   }
 
   const groupingSeparators = uniqueSeparators(normalized);
   normalized = normalized.replace(groupingSeparatorRegex, "");
+
+  if (normalized.startsWith(".") || normalized.startsWith(",")) {
+    normalized = `0${normalized}`;
+  }
 
   const lastComma = normalized.lastIndexOf(",");
   const lastDot = normalized.lastIndexOf(".");

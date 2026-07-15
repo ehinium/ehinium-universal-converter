@@ -243,6 +243,9 @@ function assertAllowedSet(actual, expected, label) {
 
 function validateForbiddenContents(files, label) {
   const forbiddenPatterns = [
+    /^test-cases\.html$/u,
+    /(^|\/)smokeTest(?:\.[^.]+)?\.(?:js|css)$/u,
+    /(^|\/)testMatrix(?:\.[^.]+)?\.js$/u,
     /^src\//u,
     /^docs\//u,
     /^tests?\//u,
