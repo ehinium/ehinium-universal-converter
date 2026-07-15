@@ -6,6 +6,9 @@
     "module": "esnext",
     "types": ["chrome"],
     "skipLibCheck": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",

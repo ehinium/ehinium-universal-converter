@@ -14,15 +14,23 @@
     "validate:release": "node scripts/validate-release.mjs",
     "release": "npm run build:release && npm run package:release && npm run validate:release",
     "test": "npm run test:unit",
-    "test:unit": "tsx src/utils/numberNormalizer.test.ts && tsx src/utils/displayFormatting.test.ts && tsx src/utils/currencyParser.test.ts && tsx src/utils/currencyConverter.test.ts && tsx src/utils/unitParser.test.ts && tsx src/utils/unitConverter.test.ts && tsx src/services/settings.test.ts && tsx src/services/theme.test.ts && tsx src/services/settingsApply.test.ts && tsx src/services/domainRules.test.ts && tsx src/services/siteControls.test.ts && tsx src/services/selectedTextConverter.test.ts && tsx src/services/ratesMerge.test.ts && tsx src/popup/manualConversion.test.ts && tsx src/popup/rateStatus.test.ts && tsx src/components/theme-provider.test.tsx && tsx src/popup/App.test.tsx && tsx src/content/scanScheduler.test.ts && tsx src/content/conversionScan.test.ts && tsx src/content/observer.test.ts && tsx src/content/settingsRefresh.test.ts && tsx src/content/domScanner.test.ts && tsx src/content/groupedPriceDetector.test.ts && tsx src/content/badgeManager.test.ts && tsx src/content/badgeVisibility.test.ts && tsx src/content/tooltip.test.ts && tsx src/content/domRenderer.test.ts && tsx src/content/realDomRegression.test.ts && tsx src/content/pageDiagnostics.test.ts && tsx src/dev/testMatrix.test.ts && tsx src/dev/smokeRenderer.test.ts",
+    "test:unit": "tsx src/utils/numberNormalizer.test.ts && tsx src/utils/displayFormatting.test.ts && tsx src/utils/currencyParser.test.ts && tsx src/utils/currencyConverter.test.ts && tsx src/utils/unitParser.test.ts && tsx src/utils/unitConverter.test.ts && tsx src/services/settings.test.ts && tsx src/services/theme.test.ts && tsx src/services/settingsApply.test.ts && tsx src/services/domainRules.test.ts && tsx src/services/siteControls.test.ts && tsx src/services/selectedTextConverter.test.ts && tsx src/services/ratesMerge.test.ts && tsx src/popup/manualConversion.test.ts && tsx src/popup/rateStatus.test.ts && tsx src/components/theme-provider.test.tsx && tsx src/components/ui/button.test.tsx && tsx src/components/ui/input.test.tsx && tsx src/components/ui/native-select.test.tsx && tsx src/components/ui/switch.test.tsx && tsx src/components/ui/select.test.tsx && tsx src/popup/App.test.tsx && tsx src/content/scanScheduler.test.ts && tsx src/content/conversionScan.test.ts && tsx src/content/observer.test.ts && tsx src/content/settingsRefresh.test.ts && tsx src/content/domScanner.test.ts && tsx src/content/groupedPriceDetector.test.ts && tsx src/content/badgeManager.test.ts && tsx src/content/badgeVisibility.test.ts && tsx src/content/tooltip.test.ts && tsx src/content/domRenderer.test.ts && tsx src/content/realDomRegression.test.ts && tsx src/content/pageDiagnostics.test.ts && tsx src/dev/testMatrix.test.ts && tsx src/dev/smokeRenderer.test.ts",
     "test:rates": "tsx src/services/rates.test.ts",
     "check": "npm run test:unit && npm run build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@radix-ui/react-label": "^2.1.11",
+    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@radix-ui/react-switch": "^1.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.24.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

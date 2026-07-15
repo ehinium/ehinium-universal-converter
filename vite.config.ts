@@ -1,12 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
 const isContentBuild = process.env.BUILD_TARGET === "content";
 const diagnosticsEnabled = process.env.EUC_DIAGNOSTICS === "true";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   define: {
     __EUC_DIAGNOSTICS__: JSON.stringify(diagnosticsEnabled),
   },
