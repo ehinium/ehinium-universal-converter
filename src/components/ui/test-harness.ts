@@ -128,10 +128,15 @@ export async function pressKey(element: Element, key: string): Promise<void> {
       bubbles: true,
       cancelable: true,
       key,
+      code: key === " " ? "Space" : key,
     });
     element.dispatchEvent(keyDown as unknown as KeyboardEvent);
     element.dispatchEvent(
-      new browserWindow.KeyboardEvent("keyup", { bubbles: true, key }) as unknown as KeyboardEvent
+      new browserWindow.KeyboardEvent("keyup", {
+        bubbles: true,
+        key,
+        code: key === " " ? "Space" : key,
+      }) as unknown as KeyboardEvent
     );
 
     // Happy DOM does not synthesize the native button click that browsers

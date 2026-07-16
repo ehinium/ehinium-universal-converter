@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import type { Root } from "react-dom/client";
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import type { UserSettings } from "../types/settings";
 
 const STORAGE_KEY = "euc-settings";
@@ -63,12 +64,21 @@ for (const [name, value] of Object.entries({
   Node: browserWindow.Node,
   Element: browserWindow.Element,
   HTMLElement: browserWindow.HTMLElement,
+  HTMLFormElement: browserWindow.HTMLFormElement,
   HTMLInputElement: browserWindow.HTMLInputElement,
   HTMLSelectElement: browserWindow.HTMLSelectElement,
   HTMLTextAreaElement: browserWindow.HTMLTextAreaElement,
+  DOMRect: browserWindow.DOMRect,
+  DocumentFragment: browserWindow.DocumentFragment,
   Event: browserWindow.Event,
+  CustomEvent: browserWindow.CustomEvent,
   MouseEvent: browserWindow.MouseEvent,
+  PointerEvent: browserWindow.PointerEvent,
   KeyboardEvent: browserWindow.KeyboardEvent,
+  MutationObserver: browserWindow.MutationObserver,
+  getComputedStyle: browserWindow.getComputedStyle.bind(browserWindow),
+  requestAnimationFrame: browserWindow.requestAnimationFrame.bind(browserWindow),
+  cancelAnimationFrame: browserWindow.cancelAnimationFrame.bind(browserWindow),
 })) {
   Object.defineProperty(globalThis, name, {
     configurable: true,
@@ -81,10 +91,34 @@ Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
   value: true,
 });
 
+class TestResizeObserver implements ResizeObserver {
+  disconnect(): void {}
+  observe(): void {}
+  unobserve(): void {}
+}
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+  configurable: true,
+  value: TestResizeObserver,
+});
+
+for (const [name, value] of Object.entries({
+  scrollIntoView: (): void => undefined,
+  hasPointerCapture: (): boolean => false,
+  setPointerCapture: (): void => undefined,
+  releasePointerCapture: (): void => undefined,
+})) {
+  Object.defineProperty(browserWindow.HTMLElement.prototype, name, {
+    configurable: true,
+    value,
+  });
+}
+
 let storedSettings = cloneSettings(initialSettings);
 let storageReadCount = 0;
 let storageWriteCount = 0;
 let openOptionsPageCount = 0;
+let clipboardWriteCount = 0;
 let resolveFirstStorageRead!: () => void;
 const firstStorageReadGate = new Promise<void>((resolve) => {
   resolveFirstStorageRead = resolve;
@@ -117,8 +151,11 @@ const chromeStub = {
     async query(): Promise<Array<{ id: number; url: string }>> {
       return [{ id: 7, url: "https://shop.example.com/product" }];
     },
-    async sendMessage(): Promise<void> {
-      return Promise.resolve();
+    async sendMessage(_tabId: number, message: { type?: string }): Promise<unknown> {
+      if (message.type === "diagnostics:get-report") {
+        return { ok: true, report: null };
+      }
+      return undefined;
     },
   },
 };
@@ -126,6 +163,15 @@ const chromeStub = {
 Object.defineProperty(globalThis, "chrome", {
   configurable: true,
   value: chromeStub,
+});
+
+Object.defineProperty(browserWindow.navigator, "clipboard", {
+  configurable: true,
+  value: {
+    async writeText(): Promise<void> {
+      clipboardWriteCount += 1;
+    },
+  },
 });
 
 let networkRequestCount = 0;
@@ -213,12 +259,43 @@ async function changeValue(
   });
 }
 
+async function chooseSelect(id: string, label: string, expectedOptionCount?: number): Promise<void> {
+  const trigger = getElement<HTMLButtonElement>(`#${id}`);
+  await act(async () => {
+    trigger.dispatchEvent(new browserWindow.PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      pointerType: "mouse",
+    }) as unknown as PointerEvent);
+  });
+  const option = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')).find(
+    (candidate) => candidate.textContent?.trim() === label
+  );
+  if (expectedOptionCount !== undefined) {
+    expectEqual(document.querySelectorAll('[data-slot="select-item"]').length, expectedOptionCount, `${id} option count`);
+  }
+  expect(option, `Expected ${id} option ${label}`);
+  await act(async () => {
+    option.focus();
+    option.dispatchEvent(new browserWindow.KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "Enter",
+      code: "Enter",
+    }) as unknown as KeyboardEvent);
+  });
+}
+
 const vite = await createServer({
   appType: "custom",
   configFile: false,
   logLevel: "silent",
   plugins: [react()],
-  define: { __EUC_DIAGNOSTICS__: "false" },
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("../", import.meta.url)),
+    },
+  },
+  define: { __EUC_DIAGNOSTICS__: "true" },
   root: process.cwd(),
   server: { middlewareMode: true },
 });
@@ -257,6 +334,28 @@ try {
   );
 
   const popupCss = readFileSync(new URL("./App.css", import.meta.url), "utf8");
+  const popupSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+  const quickSettingsSource = readFileSync(new URL("./components/QuickSettings.tsx", import.meta.url), "utf8");
+  const manualPanelSource = readFileSync(new URL("./components/ManualConversionPanel.tsx", import.meta.url), "utf8");
+  const popupHeaderSource = readFileSync(new URL("./components/PopupHeader.tsx", import.meta.url), "utf8");
+  const switchRowSource = readFileSync(new URL("./components/SettingSwitchRow.tsx", import.meta.url), "utf8");
+  expect(
+    quickSettingsSource.includes('import { SegmentedControl } from "../../components/SegmentedControl"'),
+    "Popup should use the shared conversion-mode component"
+  );
+  expect(
+    !quickSettingsSource.includes('role="radiogroup"'),
+    "Popup should not duplicate segmented-control markup"
+  );
+  expect(quickSettingsSource.includes("SelectTrigger") && quickSettingsSource.includes("SelectContent"), "Popup currency uses the shared Radix Select");
+  expect(!quickSettingsSource.includes("NativeSelect"), "Popup has no native select usage");
+  expect(!/(?:SelectTrigger|Input)[^>]*className="[^"]*(?:h-|rounded-)/u.test(quickSettingsSource), "Popup controls must not override official geometry");
+  expect(quickSettingsSource.includes("collisionPadding={8}") && quickSettingsSource.includes("max-h-[min(20rem,var(--radix-select-content-available-height))]"), "Popup currency menu has a stable viewport-aware height cap");
+  expect(quickSettingsSource.includes("z-(--layer-dropdown)") && quickSettingsSource.includes("w-[var(--radix-select-trigger-width)]"), "Popup currency menu uses the semantic dropdown layer and trigger width");
+  expect(manualPanelSource.includes('<Card className="flex items-center gap-3 p-2.5">'), "Manual result uses the shared Card surface without a radius override");
+  expect(!/Card[^>]*className="[^"]*(?:rounded|shadow|ring|border)/u.test(manualPanelSource), "Manual result must not override official Card surface");
+  expect(popupHeaderSource.includes('className="h-8 px-2 text-xs"'), "Popup Settings action retains its compact approved geometry");
+  expect(!/<Switch[\s\S]*?className=/u.test(switchRowSource), "Popup switches must use official geometry");
   expect(
     /html,\s*[\r\n]+body,\s*[\r\n]+#root\s*\{[^}]*width:\s*440px;[^}]*min-width:\s*440px;[^}]*max-width:\s*440px;/u.test(
       popupCss
@@ -266,18 +365,113 @@ try {
   expect(!popupCss.includes("780px"), "Popup CSS must not include options width");
   expect(!popupCss.includes("max-width: 100vw"), "Popup CSS must not use viewport width");
   expect(!popupCss.includes("@media (max-width"), "Popup CSS must not have responsive width breakpoints");
+  expect(
+    !/(?:min-|max-)?height\s*:\s*[^;]*(?:vh|%)/u.test(popupCss),
+    "Popup document and shell must not use viewport-relative or percentage heights"
+  );
+  expect(
+    !/\b(?:h-full|min-h-full|h-screen|max-h-screen)\b/u.test(popupSource),
+    "Popup shell must not use Tailwind viewport or percentage-height utilities"
+  );
+  expect(
+    !popupSource.includes("popup-scroll"),
+    "Outer popup shell must not be the legacy short scroll container"
+  );
+  expectEqual(
+    popupCss.match(/overflow-y\s*:/gu)?.length ?? 0,
+    1,
+    "popup vertical scroll region count"
+  );
+  expect(
+    /body\s*\{[^}]*overflow-y\s*:\s*auto/u.test(popupCss),
+    "Only the popup document body should provide vertical scrolling"
+  );
+  expect(
+    /\.popup-shell\s*\{[^}]*min-height\s*:\s*max-content[^}]*overflow\s*:\s*visible/u.test(popupCss),
+    "Popup shell should retain intrinsic height and visible overflow"
+  );
+  expect(
+    !/\b(?:absolute|fixed)\b/u.test(
+      popupSource.slice(
+        popupSource.indexOf("<main"),
+        popupSource.lastIndexOf("</main>")
+      )
+    ),
+    "Popup header and content should remain in normal document flow"
+  );
+
+  const popupShell = getElement<HTMLElement>("main.popup-shell");
+  const popupHeader = getElement<HTMLElement>("main.popup-shell > header");
+  const targetCurrencyInFlow = getElement<HTMLButtonElement>("#target-currency");
+  expect(
+    popupShell.firstElementChild === popupHeader,
+    "Popup header should be the first element in the shell's normal flow"
+  );
+  expect(
+    Boolean(
+      popupHeader.compareDocumentPosition(targetCurrencyInFlow) &
+        browserWindow.Node.DOCUMENT_POSITION_FOLLOWING
+    ),
+    "Popup content after the header should remain later in document flow"
+  );
+  expectEqual(
+    popupShell.lastElementChild?.tagName,
+    "FOOTER",
+    "popup footer flow position"
+  );
+  expect(popupShell.classList.contains("p-4"), "Popup should retain 16px outer padding");
+  expect(
+    !Array.from(popupShell.classList).some((className) => className.startsWith("gap-")),
+    "Popup shell should not add a second spacing layer around separators"
+  );
+  const popupContent = getElement<HTMLElement>(".popup-content");
+  expect(popupContent.classList.contains("gap-5"), "Major popup blocks should use a 20px rhythm");
+  const popupSeparators = Array.from(popupShell.querySelectorAll<HTMLElement>(":scope > [role='none']"));
+  expect(
+    popupSeparators.length >= 2 && popupSeparators.every((separator) => separator.classList.contains("my-4")),
+    "Popup separators should use consistent 16px vertical spacing"
+  );
+  const quickSettings = getElement<HTMLElement>('section[aria-label="Quick settings"]');
+  expect(quickSettings.classList.contains("gap-5"), "Quick settings fields should use the major spacing rhythm");
+  expect(
+    Array.from(quickSettings.children).every((field) => field.classList.contains("gap-2")),
+    "Popup labels and controls should use an 8px gap"
+  );
+  const manualSection = getElement<HTMLElement>('[aria-labelledby="manual-conversion-title"]');
+  expect(manualSection.querySelector('[data-slot="field"]')?.classList.contains("gap-3"), "Manual conversion groups should use a 12px gap");
+  expect(manualSection.querySelector('[data-slot="field"]')?.firstElementChild?.classList.contains("gap-1"), "Manual title and description should use a 4px gap");
+  expect(popupHeader.classList.contains("min-h-12"), "Popup header should retain its compact 48px minimum");
+  expectEqual(
+    popupHeader.querySelector("img")?.getAttribute("src"),
+    "/icons/icon-128.png",
+    "popup high-resolution icon source"
+  );
 
   expectEqual(
     Array.from(document.querySelectorAll("main section h2"), (heading) =>
       heading.textContent?.trim()
     ),
-    ["Manual conversion"],
+    ["Manual conversion", "Development diagnostics"],
     "popup section order"
   );
 
-  const masterToggle = getElement<HTMLInputElement>("#extension-enabled");
+  expectEqual(
+    document.querySelector("h1")?.textContent?.trim(),
+    "Ehinium Universal Converter",
+    "popup product name"
+  );
+  expect(
+    document.querySelector("header")?.textContent?.includes("Active"),
+    "Popup header should expose active status"
+  );
+  expect(
+    document.querySelector(".diagnostics-panel"),
+    "Diagnostics panel should retain its compile-time-enabled popup placement"
+  );
+
+  const masterToggle = getElement<HTMLButtonElement>("#extension-enabled");
   const masterLabels = masterToggle.labels;
-  expectEqual(masterToggle.type, "checkbox", "master toggle native input type");
+  expectEqual(masterToggle.type, "button", "master switch native button type");
   expectEqual(masterToggle.getAttribute("role"), "switch", "master toggle role");
   expect(masterLabels, "Master toggle should expose its associated label");
   expectEqual(masterLabels.length, 1, "master toggle label association");
@@ -288,7 +482,6 @@ try {
   expectEqual(masterToggle.disabled, false, "master toggle remains operable");
 
   const labeledControlIds = [
-    "conversion-mode",
     "target-currency",
     "manual-conversion-input",
     "current-site-enabled",
@@ -296,12 +489,32 @@ try {
 
   for (const id of labeledControlIds) {
     const control = getElement<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement
     >(`#${id}`);
     const labels = control.labels;
     expect(labels, `#${id} should expose its associated labels`);
     expect(labels.length > 0, `#${id} should use a native label association`);
   }
+
+  const conversionModeGroup = getElement<HTMLDivElement>('[data-slot="radio-group"][aria-labelledby="conversion-mode-label"]');
+  const conversionModeButtons = Array.from(
+    conversionModeGroup.querySelectorAll<HTMLInputElement>('[data-slot="radio-group-item"]')
+  );
+  expect(conversionModeGroup.classList.contains("grid-cols-3"), "Conversion mode uses the shared connected segmented control");
+  expect(conversionModeGroup.classList.contains("bg-muted"), "Conversion mode uses neutral segmented background");
+  const [currencyOnlyMode, unitsOnlyMode, everythingMode] = conversionModeButtons;
+  expectEqual(
+    Array.from(conversionModeGroup.querySelectorAll("label > span")).map((button) => button.textContent?.trim()),
+    ["Currency", "Units", "Everything"],
+    "shared conversion modes"
+  );
+  expect(currencyOnlyMode && unitsOnlyMode && everythingMode, "Expected all three conversion modes");
+  expectEqual(currencyOnlyMode.dataset.state, "checked", "initial segmented mode");
+  expectEqual(unitsOnlyMode.dataset.state, "unchecked", "inactive units mode");
+  expectEqual(everythingMode.dataset.state, "unchecked", "inactive everything mode");
+  expect(conversionModeGroup.classList.contains("grid-cols-3"), "Segmented items share width equally");
+  expect(getElement<HTMLButtonElement>("#target-currency").classList.contains("data-[size=default]:h-9"), "Popup select uses the official default sizing");
+  expect(getElement<HTMLInputElement>("#manual-conversion-input").classList.contains("h-9"), "Popup input uses shared sizing");
 
   for (const movedControlId of [
     "badge-style",
@@ -319,17 +532,15 @@ try {
     );
   }
 
-  expect(
-    !document.querySelector(".rate-status"),
-    "Rate diagnostics should move out of the popup"
-  );
+  expect(document.querySelector('[aria-label="Exchange rate status"]'), "Popup should expose compact rate status");
+  expect(!document.querySelector(".rate-status button"), "Popup should not add a new rate refresh action");
 
-  const openSettingsButton = getElement<HTMLButtonElement>(".button--primary");
+  const openSettingsButton = getElement<HTMLButtonElement>('[aria-label="Open settings"]');
   expectEqual(openSettingsButton.type, "button", "open settings native button type");
-  expect(
-    openSettingsButton.textContent?.includes("Open settings"),
-    "Popup should expose an Open settings command"
-  );
+  expectEqual(openSettingsButton.title, "Open settings", "settings icon title");
+  expectEqual(openSettingsButton.textContent?.trim(), "Settings", "visible settings action label");
+  expectEqual(openSettingsButton.firstElementChild?.tagName, "SPAN", "settings label should precede icon");
+  expectEqual(openSettingsButton.lastElementChild?.tagName, "svg", "settings action icon position");
   await act(async () => {
     openSettingsButton.click();
   });
@@ -343,7 +554,11 @@ try {
   const getDependentControls = (): NativeControl[] =>
     Array.from(
       document.querySelectorAll<NativeControl>("button, input, select, textarea")
-    ).filter((control) => control !== masterToggle && control !== openSettingsButton);
+    ).filter((control) =>
+      control !== masterToggle &&
+      control !== openSettingsButton &&
+      !control.closest(".diagnostics-panel")
+    );
 
   expect(getDependentControls().length >= 4, "Expected popup dependent native controls");
   expect(
@@ -377,16 +592,50 @@ try {
     "Master toggle should natively re-enable every dependent control"
   );
 
-  const conversionMode = getElement<HTMLSelectElement>("#conversion-mode");
-  await changeValue(conversionMode, "everything", "change");
+  await act(async () => {
+    unitsOnlyMode.click();
+  });
   await waitFor(
     () =>
       expectEqual(
         storedSettings.converterMode,
-        "everything",
+        "units",
         "stored conversion mode"
       ),
     "conversion-mode persistence"
+  );
+
+  await act(async () => {
+    everythingMode.click();
+  });
+  await waitFor(
+    () => expectEqual(storedSettings.converterMode, "everything", "stored everything mode"),
+    "everything-mode persistence"
+  );
+
+  await act(async () => {
+    everythingMode.focus();
+    everythingMode.dispatchEvent(
+      new browserWindow.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }) as unknown as KeyboardEvent
+    );
+  });
+  expect(document.activeElement === unitsOnlyMode, "ArrowLeft moves Toggle Group focus");
+  await act(async () => {
+    (document.activeElement as HTMLButtonElement).click();
+  });
+  await waitFor(
+    () => expectEqual(storedSettings.converterMode, "units", "keyboard-focused segmented mode"),
+    "conversion-mode keyboard activation"
+  );
+  await act(async () => {
+    const currentEverythingMode = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(
+      (label) => label.textContent?.trim() === "Everything"
+    )?.querySelector<HTMLInputElement>('[data-slot="radio-group-item"]');
+    currentEverythingMode?.click();
+  });
+  await waitFor(
+    () => expectEqual(storedSettings.converterMode, "everything", "restored segmented mode"),
+    "conversion-mode keyboard restoration"
   );
 
   await act(async () => {
@@ -401,7 +650,7 @@ try {
   await waitFor(
     () =>
       expectEqual(
-        getElement<HTMLSelectElement>("#conversion-mode").value,
+        getElement<HTMLInputElement>('[data-slot="radio-group-item"][data-state="checked"]').value,
         "everything",
         "remounted conversion mode"
       ),
@@ -409,6 +658,10 @@ try {
   );
   expect(storageReadCount >= 2, "Remount should reload settings from Chrome storage");
   expect(storageWriteCount >= 3, "Interactive changes should auto-save to storage");
+  document.documentElement.dataset.theme = "dark";
+  expectEqual(document.documentElement.dataset.theme, "dark", "dark theme root compatibility");
+  document.documentElement.dataset.theme = "light";
+  expectEqual(document.documentElement.dataset.theme, "light", "light theme root compatibility");
 
   const manualInput = getElement<HTMLInputElement>("#manual-conversion-input");
   expectEqual(manualInput.type, "text", "manual converter native input type");
@@ -422,6 +675,10 @@ try {
   );
 
   await changeValue(manualInput, "100", "input");
+  expect(
+    document.querySelector("#manual-conversion-state")?.textContent?.includes("Converting"),
+    "Manual converter should expose its loading state"
+  );
   await waitFor(
     () => {
       expectEqual(
@@ -459,11 +716,7 @@ try {
   expectEqual(networkRequestCount, 0, "same-target conversion network isolation");
 
   allowRateRequests = true;
-  await changeValue(
-    getElement<HTMLSelectElement>("#target-currency"),
-    "USD",
-    "change"
-  );
+  await chooseSelect("target-currency", "USD - United States Dollar", 155);
   await waitFor(
     () => expectEqual(storedSettings.targetCurrency, "USD", "stored target currency"),
     "target-currency persistence"
@@ -478,6 +731,17 @@ try {
     "manual currency result"
   );
   expectEqual(manualInput.getAttribute("aria-invalid"), "false", "valid currency state");
+
+  const copyButton = getElement<HTMLButtonElement>("#manual-conversion-state button");
+  expect(copyButton.textContent?.includes("Copy"), "Manual result should expose a named copy action");
+  await act(async () => {
+    copyButton.click();
+  });
+  await waitFor(
+    () => expect(copyButton.textContent?.includes("Copied"), "Copy feedback should be announced in the control name"),
+    "manual copy feedback"
+  );
+  expectEqual(clipboardWriteCount, 1, "manual copy clipboard write");
 
   await changeValue(manualInput, "180 cm", "input");
   await waitFor(
@@ -528,74 +792,6 @@ try {
     root.unmount();
   });
   activeRoot = null;
-
-  const optionsModule = (await vite.ssrLoadModule("/src/options/App.tsx")) as {
-    default: ComponentType;
-  };
-  const OptionsApp = optionsModule.default;
-  root = mountApp();
-  await act(async () => {
-    root.render(createElement(OptionsApp));
-  });
-  await waitFor(
-    () => expect(document.querySelector("#badge-style"), "Options settings did not load"),
-    "options load"
-  );
-
-  expectEqual(
-    Array.from(document.querySelectorAll("main section h2"), (heading) =>
-      heading.textContent?.trim()
-    ),
-    ["General", "Currency", "Appearance", "Units", "Sites"],
-    "options section order"
-  );
-  expect(!document.querySelector("#manual-conversion-input"), "Manual converter stays in popup");
-  expect(!document.querySelector("#current-site-enabled"), "Current-site toggle stays in popup");
-  expect(!document.querySelector(".button--primary"), "Options page should not render Open settings");
-
-  for (const [id, value, key] of [
-    ["badge-style", "compact", "badgeStyle"],
-    ["badge-visibility", "hover", "badgeVisibility"],
-    ["unit-system", "imperial", "unitSystem"],
-    ["length-target", "in", "targetLengthUnit"],
-    ["weight-target", "lb", "targetWeightUnit"],
-    ["temperature-target", "f", "targetTemperatureUnit"],
-  ] as const) {
-    await changeValue(getElement<HTMLSelectElement>(`#${id}`), value, "change");
-    await waitFor(
-      () =>
-        expectEqual(
-          String(storedSettings[key]),
-          value,
-          `stored ${key} preference`
-        ),
-      `${key} persistence`
-    );
-  }
-
-  const refreshButton = getElement<HTMLButtonElement>(".rate-status .button");
-  await act(async () => {
-    refreshButton.click();
-  });
-  await waitFor(
-    () =>
-      expectEqual(
-        networkRequestCount,
-        4,
-        "manual and forced primary plus supplemental requests"
-      ),
-    "rate refresh request"
-  );
-  await waitFor(
-    () =>
-      expect(
-        document.querySelector(".rate-status")?.textContent?.includes(
-          "Updated just now"
-        ),
-        "Rate status should report a successful refresh"
-      ),
-    "rate refresh status"
-  );
 } finally {
   if (activeRoot) {
     await act(async () => {

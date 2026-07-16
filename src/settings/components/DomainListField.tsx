@@ -1,3 +1,6 @@
+import { Field, FieldDescription, FieldLabel } from "../../components/ui/field";
+import { Textarea } from "../../components/ui/textarea";
+
 export type DomainListFieldProps = {
   id: string;
   label: string;
@@ -22,25 +25,25 @@ export function DomainListField({
   const descriptionId = `${id.replace(/-domains$/u, "")}-description`;
 
   return (
-    <label className="domain-field" htmlFor={id}>
-      <span className="domain-label-row">
-        <span className="setting-label">{label}</span>
-        <span>{count} - one per line</span>
-      </span>
-      <textarea
+    <Field className="gap-2 px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        <span className="text-xs text-muted-foreground">{count} - one per line</span>
+      </div>
+      <Textarea
         id={id}
-        className="textarea-control"
         value={value}
         disabled={disabled}
-        rows={3}
+        rows={4}
         spellCheck={false}
         placeholder={placeholder}
         aria-describedby={descriptionId}
+        className="font-mono text-xs"
         onChange={(event) => onChange(event.currentTarget.value)}
       />
-      <span id={descriptionId} className="field-help">
+      <FieldDescription id={descriptionId} className="text-[13px]">
         {description}
-      </span>
-    </label>
+      </FieldDescription>
+    </Field>
   );
 }

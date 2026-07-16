@@ -19,6 +19,24 @@ expectEqual(buttonRef.current, button, "button ref forwarding");
 await view.unmount();
 
 view = await mount(
+  createElement(Button, { variant: "ghost", size: "sm" }, "Settings")
+);
+button = document.querySelector<HTMLButtonElement>("button");
+expect(button, "used ghost button renders");
+expect(button.className.includes("hover:bg-accent"), "ghost variant class");
+expect(button.className.includes("h-8"), "small size class");
+await view.unmount();
+
+view = await mount(
+  createElement(Button, { variant: "outline", size: "sm" }, "Refresh")
+);
+button = document.querySelector<HTMLButtonElement>("button");
+expect(button, "used outline button renders");
+expect(button.className.includes("border"), "outline variant class");
+expectEqual(button.dataset.variant, "outline", "official variant data attribute");
+await view.unmount();
+
+view = await mount(
   createElement(Button, { variant: "destructive", disabled: true }, "Delete")
 );
 button = document.querySelector<HTMLButtonElement>("button");

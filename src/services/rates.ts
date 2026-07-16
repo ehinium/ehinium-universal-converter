@@ -2,9 +2,10 @@ import type { NormalizedRatesResponse } from "../types/rates";
 import { fiatCurrencies } from "../data/currencies";
 import { getFawazRates } from "./fawaz";
 import { getFrankfurterRates } from "./frankfurter";
-import { getErrorMessage, normalizeBaseCurrency } from "./rateUtils";
+import { getErrorMessage, hasRates, normalizeBaseCurrency } from "./rateUtils";
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const RATE_CACHE_STORAGE_PREFIX = "euc-rate-cache-v1:";
 
 type CachedRates = {
   response: NormalizedRatesResponse;
@@ -20,6 +21,87 @@ export type ExchangeRateStatus = {
 
 const ratesCache = new Map<string, CachedRates>();
 const rateErrors = new Map<string, number>();
+
+function getRateCacheStorageKey(base: string): string {
+  return `${RATE_CACHE_STORAGE_PREFIX}${base}`;
+}
+
+function getLocalStorage(): chrome.storage.StorageArea | null {
+  return typeof chrome !== "undefined" && chrome.storage?.local
+    ? chrome.storage.local
+    : null;
+}
+
+function isRateProvider(value: unknown): value is NormalizedRatesResponse["provider"] {
+  return value === "frankfurter" || value === "fawaz" || value === "frankfurter+fawaz";
+}
+
+function isValidCachedRates(value: unknown, base: string): value is CachedRates {
+  if (typeof value !== "object" || value === null) return false;
+
+  const cached = value as Partial<CachedRates>;
+  const response = cached.response;
+  if (
+    typeof cached.fetchedAt !== "number" ||
+    !Number.isFinite(cached.fetchedAt) ||
+    typeof cached.expiresAt !== "number" ||
+    !Number.isFinite(cached.expiresAt) ||
+    typeof response !== "object" ||
+    response === null ||
+    response.base !== base ||
+    typeof response.date !== "string" ||
+    !isRateProvider(response.provider) ||
+    typeof response.rates !== "object" ||
+    response.rates === null
+  ) {
+    return false;
+  }
+
+  const rates = Object.fromEntries(
+    Object.entries(response.rates).filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
+    )
+  );
+
+  return rates[base] === 1 && hasRates(rates);
+}
+
+async function hydrateRateCache(
+  base: string,
+  preferPersistentSnapshot = false
+): Promise<CachedRates | null> {
+  const inMemory = ratesCache.get(base);
+  if (inMemory && !preferPersistentSnapshot) return inMemory;
+
+  const storage = getLocalStorage();
+  if (!storage) return inMemory ?? null;
+
+  try {
+    const key = getRateCacheStorageKey(base);
+    const stored = await storage.get(key);
+    const cached = stored[key];
+    if (!isValidCachedRates(cached, base)) return inMemory ?? null;
+    if (!inMemory || cached.fetchedAt >= inMemory.fetchedAt) {
+      ratesCache.set(base, cached);
+      return cached;
+    }
+    return inMemory;
+  } catch {
+    return inMemory ?? null;
+  }
+}
+
+async function persistRateCache(base: string, cached: CachedRates): Promise<void> {
+  const storage = getLocalStorage();
+  if (!storage) return;
+
+  try {
+    await storage.set({ [getRateCacheStorageKey(base)]: cached });
+  } catch {
+    // A usable in-memory response must not fail because cache persistence failed.
+  }
+}
 
 function hasEveryCanonicalFiatRate(response: NormalizedRatesResponse): boolean {
   return fiatCurrencies.every((currency) => response.rates[currency.code] !== undefined);
@@ -51,7 +133,7 @@ export async function getExchangeRates(
   options: { forceRefresh?: boolean } = {}
 ): Promise<NormalizedRatesResponse> {
   const base = normalizeBaseCurrency(baseCurrency);
-  const cached = ratesCache.get(base);
+  const cached = await hydrateRateCache(base);
 
   if (!options.forceRefresh && cached && cached.expiresAt > Date.now()) {
     return cached.response;
@@ -86,11 +168,13 @@ export async function getExchangeRates(
 
   const fetchedAt = Date.now();
 
-  ratesCache.set(base, {
+  const cacheEntry = {
     response,
     fetchedAt,
     expiresAt: fetchedAt + CACHE_TTL_MS,
-  });
+  };
+  ratesCache.set(base, cacheEntry);
+  await persistRateCache(base, cacheEntry);
   rateErrors.delete(base);
 
   return response;
@@ -105,6 +189,14 @@ export function getExchangeRateStatus(baseCurrency: string): ExchangeRateStatus 
     fetchedAt: cached?.fetchedAt ?? null,
     lastErrorAt: rateErrors.get(base) ?? null,
   };
+}
+
+export async function getCachedExchangeRateStatus(
+  baseCurrency: string
+): Promise<ExchangeRateStatus> {
+  const base = normalizeBaseCurrency(baseCurrency);
+  await hydrateRateCache(base, true);
+  return getExchangeRateStatus(base);
 }
 
 export function refreshExchangeRates(

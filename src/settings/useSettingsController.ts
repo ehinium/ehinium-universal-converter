@@ -3,6 +3,7 @@ import { fiatCurrencies } from "../data/currencies";
 import { isDomainAllowed } from "../services/domainRules";
 import {
   getExchangeRates,
+  getCachedExchangeRateStatus,
   getExchangeRateStatus,
   refreshExchangeRates,
   type ExchangeRateStatus,
@@ -38,6 +39,7 @@ export type SettingsControllerDependencies = {
   setSiteAllowed: typeof setSiteAllowed;
   isDomainAllowed: typeof isDomainAllowed;
   getExchangeRates: typeof getExchangeRates;
+  getCachedExchangeRateStatus: typeof getCachedExchangeRateStatus;
   getExchangeRateStatus: typeof getExchangeRateStatus;
   refreshExchangeRates: typeof refreshExchangeRates;
   refreshRateStatus: typeof refreshRateStatus;
@@ -55,6 +57,7 @@ const defaultDependencies: SettingsControllerDependencies = {
   setSiteAllowed,
   isDomainAllowed,
   getExchangeRates,
+  getCachedExchangeRateStatus,
   getExchangeRateStatus,
   refreshExchangeRates,
   refreshRateStatus,
@@ -169,16 +172,27 @@ export function useSettingsController(
         : Promise.resolve(null);
 
     void Promise.all([dependencies.getSettings(), hostnameRequest])
-      .then(([loadedSettings, hostname]) => {
-        if (!cancelled) {
-          settingsRef.current = loadedSettings;
-          setSettings(loadedSettings);
-          setRateStatus(
-            dependencies.getExchangeRateStatus(loadedSettings.targetCurrency)
-          );
-          setCurrentHostname(hostname);
-          setWhitelistDraft(loadedSettings.whitelist.join("\n"));
-          setBlacklistDraft(loadedSettings.blacklist.join("\n"));
+      .then(async ([loadedSettings, hostname]) => {
+        if (cancelled) return;
+
+        settingsRef.current = loadedSettings;
+        setSettings(loadedSettings);
+        setCurrentHostname(hostname);
+        setWhitelistDraft(loadedSettings.whitelist.join("\n"));
+        setBlacklistDraft(loadedSettings.blacklist.join("\n"));
+
+        const statusRequestId = rateRefreshIdRef.current + 1;
+        rateRefreshIdRef.current = statusRequestId;
+        const hydratedStatus = await dependencies
+          .getCachedExchangeRateStatus(loadedSettings.targetCurrency)
+          .catch(() => dependencies.getExchangeRateStatus(loadedSettings.targetCurrency));
+        if (
+          !cancelled &&
+          mountedRef.current &&
+          rateRefreshIdRef.current === statusRequestId &&
+          settingsRef.current?.targetCurrency === loadedSettings.targetCurrency
+        ) {
+          setRateStatus(hydratedStatus);
         }
       })
       .catch((loadError: unknown) => {
@@ -312,10 +326,24 @@ export function useSettingsController(
       return;
     }
 
-    rateRefreshIdRef.current += 1;
+    const statusRequestId = rateRefreshIdRef.current + 1;
+    rateRefreshIdRef.current = statusRequestId;
     setIsRefreshingRates(false);
     setRateStatus(dependencies.getExchangeRateStatus(targetCurrency));
     updateSettings({ ...currentSettings, targetCurrency });
+
+    void dependencies
+      .getCachedExchangeRateStatus(targetCurrency)
+      .then((hydratedStatus) => {
+        if (
+          mountedRef.current &&
+          rateRefreshIdRef.current === statusRequestId &&
+          settingsRef.current?.targetCurrency === targetCurrency
+        ) {
+          setRateStatus(hydratedStatus);
+        }
+      })
+      .catch(() => undefined);
   }
 
   function updateDomains(

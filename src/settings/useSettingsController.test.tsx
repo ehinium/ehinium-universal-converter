@@ -43,6 +43,11 @@ function createDependencies(
     }),
     isDomainAllowed: () => true,
     getExchangeRates: async () => rateResponse,
+    getCachedExchangeRateStatus: async () => ({
+      response: rateResponse,
+      fetchedAt: 1,
+      lastErrorAt: null,
+    }),
     getExchangeRateStatus: () => ({
       response: rateResponse,
       fetchedAt: 1,
@@ -135,6 +140,7 @@ expectEqual(
   "popup hostname load"
 );
 expectEqual(getController().currentSiteIsAllowed, true, "current site state");
+expectEqual(getController().rateStatus.response?.base, "USD", "popup hydrates cached rate status on mount");
 
 await act(async () => {
   getController().updateSetting("badgeStyle", "compact");
@@ -205,6 +211,70 @@ expectEqual(getController().isRefreshingRates, false, "rate refresh completion")
 expectEqual(getController().rateStatus.response?.base, "USD", "rate status reload");
 await view.unmount();
 
+const emptyRateStatus = {
+  response: null,
+  fetchedAt: null,
+  lastErrorAt: null,
+};
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "options",
+    dependencies: createDependencies({
+      getExchangeRateStatus: () => emptyRateStatus,
+      getCachedExchangeRateStatus: async () => emptyRateStatus,
+    }),
+  })
+);
+await flush();
+expectEqual(getController().rateStatus.response, null, "no cached rates remain not loaded");
+await view.unmount();
+
+const eurResponse: NormalizedRatesResponse = {
+  ...rateResponse,
+  base: "EUR",
+  rates: { EUR: 1, USD: 1.08 },
+};
+const jpyResponse: NormalizedRatesResponse = {
+  ...rateResponse,
+  base: "JPY",
+  rates: { JPY: 1, USD: 0.0067 },
+  provider: "frankfurter+fawaz",
+};
+let resolveEurHydration: ((status: ReturnType<SettingsControllerDependencies["getExchangeRateStatus"]>) => void) | undefined;
+let resolveJpyHydration: ((status: ReturnType<SettingsControllerDependencies["getExchangeRateStatus"]>) => void) | undefined;
+const raceDependencies = createDependencies({
+  getExchangeRateStatus: () => emptyRateStatus,
+  getCachedExchangeRateStatus: (baseCurrency) => {
+    if (baseCurrency === "EUR") {
+      return new Promise((resolve) => { resolveEurHydration = resolve; });
+    }
+    if (baseCurrency === "JPY") {
+      return new Promise((resolve) => { resolveJpyHydration = resolve; });
+    }
+    return Promise.resolve({ response: rateResponse, fetchedAt: 1, lastErrorAt: null });
+  },
+});
+
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "options",
+    dependencies: raceDependencies,
+  })
+);
+await flush();
+expectEqual(getController().rateStatus.response?.base, "USD", "initial cached status hydrates");
+await act(async () => { getController().updateTargetCurrency("EUR"); });
+expectEqual(getController().rateStatus.response, null, "previous target metadata clears immediately");
+await act(async () => { getController().updateTargetCurrency("JPY"); });
+await act(async () => resolveJpyHydration?.({ response: jpyResponse, fetchedAt: 3, lastErrorAt: null }));
+await flush();
+expectEqual(getController().rateStatus.response?.base, "JPY", "new target cache hydrates immediately");
+expectEqual(getController().rateStatus.response?.provider, "frankfurter+fawaz", "fallback metadata survives hydration");
+await act(async () => resolveEurHydration?.({ response: eurResponse, fetchedAt: 2, lastErrorAt: null }));
+await flush();
+expectEqual(getController().rateStatus.response?.base, "JPY", "stale target hydration cannot overwrite newer status");
+await view.unmount();
+
 let failedSaveAttempts = 0;
 const failureDependencies = createDependencies({
   saveSettings: async () => {
@@ -245,12 +315,47 @@ view = await mount(
 );
 await flush();
 expectEqual(getController().currentHostname, null, "options skips hostname lookup");
+expectEqual(getController().rateStatus.response?.base, "USD", "options hydrates the same cached rate status");
 await act(async () => {
   getController().updateSetting("unitSystem", "metric");
 });
 await flush();
 expectEqual(optionNotifications, 0, "options skips popup-only notification");
 await view.unmount();
+
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "options",
+    dependencies: createDependencies({
+      getCachedExchangeRateStatus: async () => {
+        throw new Error("Local cache unavailable");
+      },
+      getExchangeRateStatus: () => emptyRateStatus,
+    }),
+  })
+);
+await flush();
+expectEqual(getController().isLoading, false, "cache lookup failure does not block settings loading");
+expectEqual(getController().error, null, "cache lookup failure does not become a settings error");
+await view.unmount();
+
+let resolveUnmountedHydration: ((status: ReturnType<SettingsControllerDependencies["getExchangeRateStatus"]>) => void) | undefined;
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "options",
+    dependencies: createDependencies({
+      getCachedExchangeRateStatus: () => new Promise((resolve) => {
+        resolveUnmountedHydration = resolve;
+      }),
+    }),
+  })
+);
+await flush();
+expectEqual(getController().isLoading, true, "hydration remains part of initial loading");
+await view.unmount();
+resolveUnmountedHydration?.({ response: rateResponse, fetchedAt: 4, lastErrorAt: null });
+await flush();
+expectEqual(getController().isLoading, true, "unmounted hydration result is ignored");
 
 let resolveStaleLoad: ((settings: UserSettings) => void) | undefined;
 const staleDependencies = createDependencies({

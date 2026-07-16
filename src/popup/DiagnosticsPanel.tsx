@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "../components/ui/button";
 import type { DiagnosticsMessage } from "../shared/messages";
 import type { PageDiagnosticReport } from "../types/diagnostics";
 import { formatPageDiagnosticMarkdown } from "./diagnosticMarkdown";
@@ -98,44 +99,40 @@ export function DiagnosticsPanel() {
 
   return (
     <section
-      className="popup-block diagnostics-panel"
+      className="diagnostics-panel grid gap-3"
       aria-labelledby="diagnostics-title"
-      style={{ display: "grid", gap: 12, background: "#f7f5ff" }}
     >
-      <div className="section-heading">
-        <h2 id="diagnostics-title">Development diagnostics</h2>
-        <p>Capture why visible prices were scanned, parsed, converted, skipped, or not rendered.</p>
+      <div>
+        <h2 id="diagnostics-title" className="text-[13px] font-medium leading-5 text-foreground">Development diagnostics</h2>
+        <p className="text-xs leading-4 text-muted-foreground">Capture why visible prices were scanned, parsed, converted, skipped, or not rendered.</p>
       </div>
-      <div
-        className="diagnostics-actions"
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
-      >
-        <button className="button button--secondary" type="button" disabled={busy} onClick={() => void capturePage()}>
+      <div className="diagnostics-actions grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" type="button" disabled={busy} onClick={() => void capturePage()}>
           {busy ? "Capturing…" : "Capture current page"}
-        </button>
-        <button className="button button--secondary" type="button" onClick={() => void startPicker()}>
+        </Button>
+        <Button variant="outline" size="sm" type="button" onClick={() => void startPicker()}>
           Pick element to inspect
-        </button>
-        <button className="button button--secondary" type="button" disabled={!report} onClick={() => report && downloadReport(report)}>
+        </Button>
+        <Button variant="outline" size="sm" type="button" disabled={!report} onClick={() => report && downloadReport(report)}>
           Download diagnostic JSON
-        </button>
-        <button className="button button--secondary" type="button" disabled={!report} onClick={() => void copyMarkdown()}>
+        </Button>
+        <Button variant="outline" size="sm" type="button" disabled={!report} onClick={() => void copyMarkdown()}>
           Copy Markdown report
-        </button>
-        <button
-          className="button button--secondary diagnostics-clear"
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="diagnostics-clear col-span-2"
           type="button"
-          style={{ gridColumn: "1 / -1" }}
           onClick={() => void clearSession()}
         >
           Clear diagnostic session
-        </button>
+        </Button>
       </div>
       <p
-        className="diagnostics-status"
+        className="diagnostics-status m-0 text-xs leading-4 text-muted-foreground"
         role="status"
         aria-live="polite"
-        style={{ margin: 0, color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.45 }}
       >
         {status}
       </p>
