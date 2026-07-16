@@ -1,13 +1,19 @@
 # Ehinium Universal Converter
+
 <p align="center">
   <img src="https://imgur.com/SF6JmXK.png" alt="Preview" width="60%">
 </p>
+
 <p align="center">
   <strong>Automatic currency and unit conversion, directly inside the web.</strong>
 </p>
 
 <p align="center">
   Convert prices and measurements as you browse, without copying values into a separate calculator.
+</p>
+
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/ehinium-universal-convert/feafalbcngocmfihiophdhjneclnjncd">View on Chrome Web Store</a>
 </p>
 
 <p align="center">
