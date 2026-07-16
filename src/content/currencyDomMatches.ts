@@ -1,6 +1,17 @@
 import { parseCurrencies, type CurrencyMatch } from "../utils/currencyParser";
 import { getContentExclusionDetail, isInsideExcludedContent } from "./domExclusions";
 import { selectPriceAnchor } from "./priceAnchor";
+import { incrementPerfCounter, measureSync } from "./perfDiagnostics";
+
+const PERF_DIAGNOSTICS_ENABLED = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
+
+function parseCurrenciesForAudit(input: string): CurrencyMatch[] {
+  if (!PERF_DIAGNOSTICS_ENABLED) return parseCurrencies(input);
+  incrementPerfCounter("parserCalls");
+  const matches = measureSync("parser-execution", () => parseCurrencies(input));
+  incrementPerfCounter("parserMatches", matches.length);
+  return matches;
+}
 
 export type TextFragmentMap = {
   node: Text;
@@ -148,7 +159,7 @@ function directDomMatches(node: Text): CurrencyDomMatch[] {
     return [];
   }
 
-  return parseCurrencies(parserInput).flatMap((match) => {
+  return parseCurrenciesForAudit(parserInput).flatMap((match) => {
     const renderingAnchor = selectPriceAnchor([node], parserInput, match).anchor;
     if (!renderingAnchor) return [];
     return [{
@@ -197,7 +208,7 @@ export function collectCurrencyDomMatches(
       parsedContainers.add(container);
       const local = collectFragments(container, combinedEligibleNodes);
       if (local) {
-        const matches = parseCurrencies(local.input);
+        const matches = parseCurrenciesForAudit(local.input);
 
         for (const match of matches) {
           const mappedFragments = fragmentsForMatch(local.fragments, match);

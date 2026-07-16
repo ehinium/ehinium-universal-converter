@@ -136,7 +136,7 @@ export async function scanConversionRoots(
 
   try {
     ratesData = perfDiagnosticsEnabled
-      ? await measurePerfAsync("rates-cache-lookup", () => loadRates(settings.targetCurrency))
+      ? await measurePerfAsync("rates-load-total", () => loadRates(settings.targetCurrency))
       : await loadRates(settings.targetCurrency);
   } catch (error) {
     writeDebug({

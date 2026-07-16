@@ -73,6 +73,9 @@ import {
   clearBadgeHostRegistry,
   registerStandaloneBadgeHost,
 } from "./badgeHostRegistry";
+import { incrementPerfCounter, measureSync } from "./perfDiagnostics";
+
+const PERF_DIAGNOSTICS_ENABLED = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
 
 export type RenderConversionOptions = {
   enabled: boolean;
@@ -535,9 +538,16 @@ export function renderConversions(
       ...groupedCandidates,
       ...collectCurrencyDomMatches(eligibleCurrencyNodes),
     ];
-    const canonicalCandidates = canonicalizePriceCandidates(
-      discoverPriceCandidates(discoveredDomMatches, options.targetCurrency, groupedPriceAnchors)
-    );
+    const discoveredCandidates = PERF_DIAGNOSTICS_ENABLED
+      ? measureSync("candidate-discovery", () => discoverPriceCandidates(discoveredDomMatches, options.targetCurrency, groupedPriceAnchors))
+      : discoverPriceCandidates(discoveredDomMatches, options.targetCurrency, groupedPriceAnchors);
+    const canonicalCandidates = PERF_DIAGNOSTICS_ENABLED
+      ? measureSync("canonicalization", () => canonicalizePriceCandidates(discoveredCandidates))
+      : canonicalizePriceCandidates(discoveredCandidates);
+    if (PERF_DIAGNOSTICS_ENABLED) {
+      incrementPerfCounter("canonicalCandidates", canonicalCandidates.length);
+      incrementPerfCounter("candidatesDiscardedAsDuplicates", Math.max(0, discoveredCandidates.length - canonicalCandidates.length));
+    }
     beginVisualSourceReconciliationBatch();
 
     for (const priceCandidate of canonicalCandidates) {

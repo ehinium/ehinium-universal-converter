@@ -40,6 +40,7 @@ import {
   capturePerfMemory,
   exposePerfDiagnosticsApi,
   incrementPerfCounter,
+  getMaximumSyncSliceSince,
   measurePerfAsync,
   recordPerfBatch,
   recordPerfMeasurement,
@@ -331,6 +332,10 @@ function settingsChangedDuringScan(
 
 async function scanConversions(request: ScanRequest): Promise<number> {
   const perfStartedAt = PERF_DIAGNOSTICS_ENABLED ? performance.now() : 0;
+  const badgesBefore = PERF_DIAGNOSTICS_ENABLED ? {
+    inline: document.querySelectorAll('[data-euc-badge-host="true"]:not([data-ehinium-placement="overlay"])').length,
+    overlay: document.querySelectorAll('[data-euc-badge-host="true"][data-ehinium-placement="overlay"]').length,
+  } : { inline: 0, overlay: 0 };
   const settings = currentSettings;
   const version = settingsVersion;
 
@@ -357,10 +362,15 @@ async function scanConversions(request: ScanRequest): Promise<number> {
     incrementPerfCounter("processedRoots", roots.length);
     incrementPerfCounter(request.roots === null ? "fullDocumentRescans" : "localSubtreeRescans");
     incrementPerfCounter("inlineBadgeAttempts", result.renderedCount);
-    incrementPerfCounter("inlineBadgesInserted", result.renderedCount);
+    const inlineAfter = document.querySelectorAll('[data-euc-badge-host="true"]:not([data-ehinium-placement="overlay"])').length;
+    const overlayAfter = document.querySelectorAll('[data-euc-badge-host="true"][data-ehinium-placement="overlay"]').length;
+    incrementPerfCounter("inlineBadgesInserted", Math.max(0, inlineAfter - badgesBefore.inline));
+    incrementPerfCounter("overlayBadgesInserted", Math.max(0, overlayAfter - badgesBefore.overlay));
     recordPerfBatch({
       trigger: request.reason,
       totalDuration: duration,
+      batchWallClockDuration: duration,
+      maximumSynchronousSliceMs: getMaximumSyncSliceSince(perfStartedAt),
       affectedRootCount: roots.length,
       affectedRootSelectors: roots.map((root) => root instanceof Element ? root.tagName.toLowerCase() : root.nodeName.toLowerCase()),
       nodesVisited: result.scannedNodeCount,

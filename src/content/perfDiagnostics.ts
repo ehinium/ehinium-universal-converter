@@ -1,4 +1,5 @@
 import type { UserSettings } from "../types/settings";
+import { getBadgeHostCensusDiagnostic } from "./badgeHostRegistry";
 
 export type PerfStage =
   | "content-script-evaluation"
@@ -29,6 +30,25 @@ export type PerfMeasurement = {
   batchId?: string;
 };
 
+export type DiagnosticTiming = {
+  name: string;
+  startedAt: number;
+  wallClockDurationMs: number;
+  synchronousCpuDurationMs: number | null;
+  asyncWaitDurationMs: number | null;
+  schedulingDelayMs: number | null;
+  maximumSynchronousSliceMs: number | null;
+  attribution: "measured" | "estimated" | "unsupported";
+  batchId?: string;
+};
+
+export type ExtensionSyncSlice = {
+  name: string;
+  startedAt: number;
+  durationMs: number;
+  batchId?: string;
+};
+
 export type PerfBatch = {
   batchId: string;
   trigger: string;
@@ -46,6 +66,8 @@ export type PerfBatch = {
   badgesRemoved: number;
   stageDurations: Record<string, number>;
   totalDuration: number;
+  batchWallClockDuration: number;
+  maximumSynchronousSliceMs: number;
   longestSynchronousTask: number;
   frameBudget: FrameBudget;
   exceededFrameBudget: boolean;
@@ -84,6 +106,8 @@ type DiagnosticsState = {
   counters: Record<string, number>;
   skippedByReason: Record<string, number>;
   measurements: PerfMeasurement[];
+  timings: DiagnosticTiming[];
+  extensionSyncSlices: ExtensionSyncSlice[];
   batches: PerfBatch[];
   archivedBatchTotals: { count: number; totalDuration: number };
   longTasks: LongTaskRecord[];
@@ -119,7 +143,7 @@ function initialState(): DiagnosticsState {
   return {
     startedAt: new Date().toISOString(), settings: null,
     counters: Object.fromEntries(COUNTER_NAMES.map((name) => [name, 0])),
-    skippedByReason: {}, measurements: [], batches: [],
+    skippedByReason: {}, measurements: [], timings: [], extensionSyncSlices: [], batches: [],
     archivedBatchTotals: { count: 0, totalDuration: 0 }, longTasks: [],
     memorySnapshots: [], scenarios: [], errors: [],
   };
@@ -165,44 +189,148 @@ export function recordPerfMeasurement(name: PerfStage | string, startedAt: numbe
   trim(state.measurements, MAX_MEASUREMENTS);
 }
 
-export function measurePerf<T>(name: PerfStage | string, operation: () => T, batchId?: string): T {
-  const startedAt = performance.now();
+function recordTiming(timing: DiagnosticTiming): void {
+  state.timings.push(timing);
+  trim(state.timings, MAX_MEASUREMENTS);
+}
+
+function recordSyncSlice(name: string, startedAt: number, durationMs: number, batchId?: string): void {
+  state.extensionSyncSlices.push({ name, startedAt, durationMs, batchId });
+  trim(state.extensionSyncSlices, MAX_MEASUREMENTS);
+}
+
+export type SyncSliceToken = { name: string; startedAt: number; batchId?: string };
+
+export function startSyncSlice(name: string, batchId?: string): SyncSliceToken {
+  return { name: bounded(name), startedAt: performance.now(), batchId };
+}
+
+export function endSyncSlice(token: SyncSliceToken): number {
+  const durationMs = Math.max(0, performance.now() - token.startedAt);
+  recordSyncSlice(token.name, token.startedAt, durationMs, token.batchId);
+  return durationMs;
+}
+
+export function getMaximumSyncSliceSince(startedAt: number): number {
+  return state.extensionSyncSlices.filter((slice) => slice.startedAt >= startedAt)
+    .reduce((maximum, slice) => Math.max(maximum, slice.durationMs), 0);
+}
+
+export function measureSync<T>(name: PerfStage | string, operation: () => T, batchId?: string): T {
+  const token = startSyncSlice(name, batchId);
   const previousStage = activeStage;
   const previousBatch = activeBatchId;
   activeStage = name;
   activeBatchId = batchId;
-  performance.mark(`euc:${name}:start`);
   try { return operation(); }
   finally {
-    const duration = Math.max(0, performance.now() - startedAt);
-    performance.mark(`euc:${name}:end`);
-    performance.measure(`euc:${name}`, `euc:${name}:start`, `euc:${name}:end`);
-    recordPerfMeasurement(name, startedAt, duration, batchId);
+    const duration = endSyncSlice(token);
+    recordPerfMeasurement(name, token.startedAt, duration, batchId);
+    recordTiming({ name, startedAt: token.startedAt, wallClockDurationMs: duration,
+      synchronousCpuDurationMs: duration, asyncWaitDurationMs: 0, schedulingDelayMs: 0,
+      maximumSynchronousSliceMs: duration, attribution: "measured", batchId });
     activeStage = previousStage;
     activeBatchId = previousBatch;
   }
 }
 
-export async function measurePerfAsync<T>(name: PerfStage | string, operation: () => Promise<T>, batchId?: string): Promise<T> {
+export async function measureAwait<T>(name: PerfStage | string, promiseFactory: () => Promise<T>, batchId?: string): Promise<T> {
   const startedAt = performance.now();
-  const previousStage = activeStage;
-  const previousBatch = activeBatchId;
-  activeStage = name;
-  activeBatchId = batchId;
-  performance.mark(`euc:${name}:start`);
-  try { return await operation(); }
+  try { return await promiseFactory(); }
   finally {
     const duration = Math.max(0, performance.now() - startedAt);
-    performance.mark(`euc:${name}:end`);
-    performance.measure(`euc:${name}`, `euc:${name}:start`, `euc:${name}:end`);
     recordPerfMeasurement(name, startedAt, duration, batchId);
-    activeStage = previousStage;
-    activeBatchId = previousBatch;
+    recordTiming({ name, startedAt, wallClockDurationMs: duration, synchronousCpuDurationMs: 0,
+      asyncWaitDurationMs: duration, schedulingDelayMs: 0, maximumSynchronousSliceMs: 0,
+      attribution: "estimated", batchId });
+  }
+}
+
+export type AsyncTimingContext = {
+  measureSync: <T>(name: string, operation: () => T) => T;
+  measureAwait: <T>(name: string, promiseFactory: () => Promise<T>) => Promise<T>;
+};
+
+export async function measureAsync<T>(name: PerfStage | string, operation: (timing: AsyncTimingContext) => Promise<T>, batchId?: string): Promise<T> {
+  const startedAt = performance.now();
+  let synchronousCpuDurationMs = 0;
+  let measuredAwaitDurationMs = 0;
+  let maximumSynchronousSliceMs = 0;
+  const timing: AsyncTimingContext = {
+    measureSync<TValue>(childName: string, childOperation: () => TValue): TValue {
+      const sliceStartedAt = performance.now();
+      try { return childOperation(); }
+      finally {
+        const duration = Math.max(0, performance.now() - sliceStartedAt);
+        synchronousCpuDurationMs += duration;
+        maximumSynchronousSliceMs = Math.max(maximumSynchronousSliceMs, duration);
+        recordSyncSlice(`${name}:${childName}`, sliceStartedAt, duration, batchId);
+      }
+    },
+    async measureAwait<TValue>(childName: string, promiseFactory: () => Promise<TValue>): Promise<TValue> {
+      const waitStartedAt = performance.now();
+      try { return await promiseFactory(); }
+      finally {
+        const duration = Math.max(0, performance.now() - waitStartedAt);
+        measuredAwaitDurationMs += duration;
+        recordTiming({ name: `${name}:${childName}`, startedAt: waitStartedAt, wallClockDurationMs: duration,
+          synchronousCpuDurationMs: 0, asyncWaitDurationMs: duration, schedulingDelayMs: 0,
+          maximumSynchronousSliceMs: 0, attribution: "estimated", batchId });
+      }
+    },
+  };
+  try { return await operation(timing); }
+  finally {
+    const wallClockDurationMs = Math.max(0, performance.now() - startedAt);
+    const asyncWaitDurationMs = Math.max(measuredAwaitDurationMs, wallClockDurationMs - synchronousCpuDurationMs);
+    recordPerfMeasurement(name, startedAt, wallClockDurationMs, batchId);
+    recordTiming({ name, startedAt, wallClockDurationMs, synchronousCpuDurationMs,
+      asyncWaitDurationMs, schedulingDelayMs: 0, maximumSynchronousSliceMs,
+      attribution: "measured", batchId });
+  }
+}
+
+export function measureScheduled<T>(name: PerfStage | string, scheduler: (callback: () => void) => void, callback: () => T | Promise<T>, batchId?: string): Promise<T> {
+  const requestedAt = performance.now();
+  return new Promise<T>((resolvePromise, reject) => {
+    scheduler(() => {
+      const startedAt = performance.now();
+      const schedulingDelayMs = Math.max(0, startedAt - requestedAt);
+      const token = startSyncSlice(name, batchId);
+      let result: T | Promise<T>;
+      try { result = callback(); }
+      catch (error) { endSyncSlice(token); reject(error); return; }
+      const synchronousSlice = endSyncSlice(token);
+      const finish = (): void => {
+        const wallClockDurationMs = Math.max(0, performance.now() - requestedAt);
+        recordTiming({ name, startedAt: requestedAt, wallClockDurationMs,
+          synchronousCpuDurationMs: synchronousSlice, asyncWaitDurationMs: Math.max(0, wallClockDurationMs - schedulingDelayMs - synchronousSlice),
+          schedulingDelayMs, maximumSynchronousSliceMs: synchronousSlice, attribution: "measured", batchId });
+      };
+      Promise.resolve(result).then((value) => { finish(); resolvePromise(value); }, (error) => { finish(); reject(error); });
+    });
+  });
+}
+
+export function measurePerf<T>(name: PerfStage | string, operation: () => T, batchId?: string): T {
+  return measureSync(name, operation, batchId);
+}
+
+export async function measurePerfAsync<T>(name: PerfStage | string, operation: () => Promise<T>, batchId?: string): Promise<T> {
+  const startedAt = performance.now();
+  try { return await operation(); }
+  finally {
+    const wallClockDurationMs = Math.max(0, performance.now() - startedAt);
+    recordPerfMeasurement(name, startedAt, wallClockDurationMs, batchId);
+    recordTiming({ name, startedAt, wallClockDurationMs, synchronousCpuDurationMs: null,
+      asyncWaitDurationMs: null, schedulingDelayMs: null, maximumSynchronousSliceMs: null,
+      attribution: "unsupported", batchId });
   }
 }
 
 export function recordPerfBatch(input: Partial<PerfBatch> & Pick<PerfBatch, "trigger" | "totalDuration">): PerfBatch {
   const fullPageScan = input.fullPageScan ?? false;
+  const maximumSynchronousSliceMs = input.maximumSynchronousSliceMs ?? input.longestSynchronousTask ?? 0;
   const batch: PerfBatch = {
     batchId: input.batchId ?? `batch-${state.archivedBatchTotals.count + state.batches.length + 1}`,
     trigger: bounded(input.trigger), timestamp: new Date().toISOString(),
@@ -213,8 +341,10 @@ export function recordPerfBatch(input: Partial<PerfBatch> & Pick<PerfBatch, "tri
     candidateCount: input.candidateCount ?? 0, canonicalCandidateCount: input.canonicalCandidateCount ?? 0,
     badgesInserted: input.badgesInserted ?? 0, badgesUpdated: input.badgesUpdated ?? 0,
     badgesRemoved: input.badgesRemoved ?? 0, stageDurations: { ...(input.stageDurations ?? {}) },
-    totalDuration: input.totalDuration, longestSynchronousTask: input.longestSynchronousTask ?? input.totalDuration,
-    frameBudget: budget(input.totalDuration), exceededFrameBudget: input.totalDuration > 16.7,
+    totalDuration: input.totalDuration, batchWallClockDuration: input.batchWallClockDuration ?? input.totalDuration,
+    maximumSynchronousSliceMs,
+    longestSynchronousTask: maximumSynchronousSliceMs,
+    frameBudget: budget(maximumSynchronousSliceMs), exceededFrameBudget: maximumSynchronousSliceMs > 16.7,
     fullPageScan, fullPageScanReason: input.fullPageScanReason ? bounded(input.fullPageScanReason) : undefined,
     estimatedDomCoveragePercent: input.estimatedDomCoveragePercent,
   };
@@ -280,10 +410,19 @@ export function getPerfSnapshot(): Record<string, unknown> {
   return { schema: "ehinium-extension-performance/v1", startedAt: state.startedAt, settings: clone(state.settings),
     counters: clone(state.counters), batchCount: state.batches.length + state.archivedBatchTotals.count,
     activeBadgeCount: document.querySelectorAll("[data-ehinium-badge], [data-euc-badge]").length,
+    badgeHostCensus: clone(getBadgeHostCensusDiagnostic()),
     pendingWork: clone(pendingWorkProvider?.() ?? {}), latestMemory: clone(state.memorySnapshots.at(-1) ?? null) };
 }
 
-export function getDetailedPerfReport(): Record<string, unknown> { return { ...getPerfSnapshot(), ...clone(state) }; }
+export function getDetailedPerfReport(): Record<string, unknown> {
+  const browserLongTasks = clone(state.longTasks);
+  const extensionSyncSlices = clone(state.extensionSyncSlices);
+  const overlaps = browserLongTasks.flatMap((task) => extensionSyncSlices
+    .filter((slice) => slice.startedAt < task.startTime + task.duration && slice.startedAt + slice.durationMs > task.startTime)
+    .map((slice) => ({ browserLongTaskStartTime: task.startTime, extensionSyncSliceName: slice.name,
+      extensionSyncSliceStartTime: slice.startedAt, overlap: "inferred-possible-overlap" as const })));
+  return { ...getPerfSnapshot(), ...clone(state), browserLongTasks, extensionSyncSlices, overlaps };
+}
 export function resetPerfDiagnostics(): void { state = initialState(); performance.clearMarks("euc:"); performance.clearMeasures("euc:"); }
 export function markPerfScenario(name: string): void { state.scenarios.push({ name: bounded(name), timestamp: new Date().toISOString() }); trim(state.scenarios, 100); capturePerfMemory(`scenario:${name}`); }
 export function getRecentPerfBatches(limit = 50): PerfBatch[] { return clone(state.batches.slice(-Math.max(0, Math.min(500, limit)))); }

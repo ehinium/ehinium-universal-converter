@@ -251,6 +251,8 @@ You may use, copy, modify, and redistribute the software under the license terms
 
 This project is **source-available**, not OSI-approved open-source software.
 
+Development-only browser performance comparison and extension instrumentation are documented in [docs/performance-audit.md](docs/performance-audit.md).
+
 ## Creator
 
 Designed and built by **Ehsan Rabipour**.

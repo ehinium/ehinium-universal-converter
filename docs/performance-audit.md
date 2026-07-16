@@ -13,9 +13,19 @@ npm run audit:perf -- --url fixture:static-prices --profile desktop
 npm run audit:perf -- --url fixture:mutation-heavy-spa --profile throttled
 npm run audit:perf -- --url "https://example.com" --headful --trace
 npm run audit:perf -- --url "https://example.com" --headful --manual-translation
+npm run audit:perf -- --url "https://store.google.com/gb/config/pixel_10_pro?hl=en-GB" --scenario google-store-pixel-config --runs 3 --headful --fail-on-invalid-workload
+npm run audit:perf -- --url "https://www.trendyol.com/..." --scenario trendyol-manual-translation --runs 2 --headful --fail-on-invalid-workload
 ```
 
-The harness builds both variants unless `--skip-build` is passed. Other flags are `--strict`, `--screenshot`, `--cpu-profile`, `--quiet-window <ms>`, `--max-wait <ms>`, and `--output <directory>`. Expensive tracing and CPU profiling are off by default. Install Playwright's Chromium once with `npx playwright install chromium` if the browser executable is not already present.
+The harness builds both variants unless `--skip-build` is passed. Other flags are `--strict`, `--screenshot`, `--cpu-profile`, `--quiet-window <ms>`, `--max-wait <ms>`, `--output <directory>`, `--scenario <id>`, `--fail-on-invalid-workload`, `--allow-invalid-workload`, the three `--minimum-*-badges/matches` overrides, `--cycles <n>`, and `--force-gc-between-cycles`. Expensive tracing, CPU profiling, and forced GC are off by default. Install Playwright's Chromium once with `npx playwright install chromium` if the browser executable is not already present.
+
+## Workload validity
+
+Every run records its workload contract, observed counters, status, failed conditions, and warnings. Generic pages require at least one scanned text node but do not require a price. Deterministic fixtures use fixture-specific contracts. Conversion scenarios require parser matches and active/rendered badges; translation additionally requires registry/DOM parity and zero orphan or competing hosts.
+
+Invalid and partial measured runs remain in JSON but are excluded from aggregate statistics. Mode reports state measured, valid, invalid, unsupported, and excluded counts. Warm-ups record validity but never enter aggregates. `--strict` and `--fail-on-invalid-workload` fail required invalid contracts, while `--allow-invalid-workload` permits diagnostic-only runs. Without that override, a mode whose every measured run is invalid exits non-zero.
+
+Scenarios live only under `performance-scenarios/` and are dynamically loaded by the Node audit harness. They are never imported into extension entry points. Each step records timestamps, duration, status, details, screenshot, and error. Failed steps save a screenshot plus a bounded, redacted role/label inventory. The Google Store scenario uses semantic controls to reveal and change a real price, checks badges through configuration updates, scrolls sticky states, and resizes. The Trendyol scenario is deliberately manual and headful, with timestamped checkpoints for enabling translation, changing language, and disabling translation.
 
 ## Comparison architecture
 
@@ -34,7 +44,7 @@ The bundled local HTTP server serves twelve deterministic offline fixtures from 
 
 Browser Performance APIs provide navigation, paint, LCP, CLS, INP when interaction timing is available, resources, heap (when Chromium exposes `performance.memory`), DOM counts, and long tasks. Total Blocking Time is an approximation: the sum of each observed long task's duration above 50 ms. CDP separately provides `Performance.getMetrics` values (including task/script/layout/style duration and counts when Chromium reports them) and a pierced DOM-node count.
 
-The diagnostics build records bounded extension lifecycle measures, mutation classification, counters, scan batches, inferred long-task overlap, scenario markers, and memory/DOM snapshots. The page API is available only in that build as `window.__EUC_PERF_DIAGNOSTICS__`:
+The diagnostics build records bounded extension lifecycle measures, mutation classification, counters, scan batches, inferred long-task overlap, scenario markers, and memory/DOM snapshots. Parser calls/matches, canonical candidates, render-mode insertions, active badges, and registry census make workload validity observable. The page API is available only in that build as `window.__EUC_PERF_DIAGNOSTICS__`:
 
 - `getSnapshot()` and `getDetailedReport()`
 - `reset()` and `markScenario(name)`
@@ -57,4 +67,6 @@ Warnings are non-fatal unless `--strict` is used. Defaults cover: load median ab
 
 ## Measurement limits
 
-Long-task overlap with extension work is explicitly marked inferred; browser APIs cannot prove exact script ownership. INP remains unavailable without a qualifying interaction. Cross-origin resource transfer sizes can be zero without Timing-Allow-Origin. `performance.memory` is Chromium-specific. CDP metric availability varies by Chromium version. WeakMap sizes cannot be inspected, so diagnostics use bounded mirrored counts where integration exposes them. Automated Chrome page translation is deliberately not claimed; use the manual flow or fixture. External pages can vary due to experiments, authentication, geography, bot defenses, and network conditions, so local fixtures are the reproducibility anchor.
+Timing records separate wall-clock duration, explicitly measured synchronous CPU, calculated/estimated async wait, scheduler delay, and maximum uninterrupted sync slice. Awaited rate preparation is never labeled CPU without an explicit sync measurement. Batch wall time no longer defaults into `longestSynchronousTask`; frame-budget classification uses measured sync slices. Browser long tasks, extension sync slices, and temporal overlaps are separate arrays, and overlap is only inferred—not causal.
+
+Long-task overlap with extension work is explicitly marked inferred; browser APIs cannot prove exact script ownership. INP remains unavailable without a qualifying interaction. Cross-origin resource transfer sizes can be zero without Timing-Allow-Origin. `performance.memory` is Chromium-specific. CDP metric availability varies by Chromium version. Rate-provider internals that are not explicitly instrumented remain `unsupported` rather than being guessed. WeakMap sizes cannot be inspected, so diagnostics use the badge registry census and bounded mirrored counts. Automated Chrome page translation is deliberately not claimed; use the manual flow or fixture. External pages can vary due to experiments, authentication, geography, bot defenses, and network conditions, so local fixtures are the reproducibility anchor.
