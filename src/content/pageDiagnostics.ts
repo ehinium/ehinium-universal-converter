@@ -22,7 +22,7 @@ import {
   getCurrencyTextNodeRenderSkipReason,
 } from "./domRenderer";
 import { getDebugEvents } from "./debug";
-import { findPriceAnchor } from "./priceAnchor";
+import { findPriceAnchor, selectPriceAnchor } from "./priceAnchor";
 import { collectTextNodesForScan } from "./scanRoots";
 import {
   collectCurrencyDomMatches,
@@ -33,7 +33,27 @@ import {
   clearMutationBatchDiagnostics,
   getMutationBatchDiagnostics,
 } from "./observer";
+import {
+  getBadgeHostCensusDiagnostic,
+  getBadgeHostReconciliationDiagnostics,
+} from "./badgeHostRegistry";
 import { getBadgeVisibilityDiagnostics } from "./badgeVisibility";
+import { getTranslationWrapperDiagnostic } from "./translationLineage";
+import {
+  getOverlayPlacementDiagnostics,
+  getOverlayPlacementGroupDiagnostics,
+  getRenderLifecycleDiagnostics,
+} from "./badgeLifecycle";
+import {
+  getCandidateDiscoveryDiagnostics,
+  getCanonicalizationDiagnostics,
+  getVisualSourceReconciliationDiagnostics,
+} from "./priceCandidatePipeline";
+import {
+  getBadgeEncapsulationDiagnostics,
+  getBadgeVisibleText,
+  getTranslationProtectionDiagnostics,
+} from "./badgeHost";
 
 const MAX_TEXT_NODES = 2500;
 const MAX_PRICE_LIKE_ELEMENTS = 300;
@@ -321,6 +341,13 @@ async function collectTextNodeDiagnostics(
         );
         const renderedBadge = [...document.querySelectorAll<HTMLElement>("[data-ehinium-source-match]")]
           .find((badge) => badge.getAttribute("data-ehinium-source-match") === duplicate.processedMatchKey);
+        const anchorSelection = selectPriceAnchor(
+          candidate.sourceNodes,
+          candidate.scanKind === "direct"
+            ? candidate.parserInput
+            : candidate.sourceNodes.map((sourceNode) => sourceNode.textContent ?? "").join(""),
+          candidate.scanKind === "direct" ? candidate.match : undefined
+        );
 
         return {
           parserInput: candidate.parserInput,
@@ -351,6 +378,16 @@ async function collectTextNodeDiagnostics(
             : renderedBadge
               ? "disconnected"
               : "not-rendered",
+          anchorSafety: anchorSelection.selected ?? anchorSelection.candidates.at(-1)!,
+          reconciliation: duplicate.reconciliation,
+          translationWrapper: getTranslationWrapperDiagnostic(
+            candidate,
+            settings?.targetCurrency ?? "target-currency-unavailable",
+            duplicate.reason
+          ),
+          combinedParentSkipReason: candidate.scanKind === "direct"
+            ? "Leaf price match takes priority over combined parent match"
+            : undefined,
           localCombinedTextScanAttempted: candidate.localCombinedScanAttempted,
           directNodeParserSucceeded: candidate.directNodeParserSucceeded,
           contextRejectionOccurred: contextReason !== null,
@@ -364,7 +401,7 @@ async function collectTextNodeDiagnostics(
             settings && candidate.match.currency !== settings.targetCurrency
               ? rates?.[candidate.match.currency] !== undefined
               : undefined,
-          renderedBadge: renderedBadge?.textContent ?? undefined,
+          renderedBadge: renderedBadge ? getBadgeVisibleText(renderedBadge) : undefined,
           mutationEvents: productionEvents.filter((event) => event.type.startsWith("scan:")),
           excludedExtensionFragmentCount:
             candidate.excludedExtensionFragmentCount,
@@ -506,6 +543,16 @@ async function captureReport(
     productionDebugEvents: getDebugEvents(),
     mutationBatches: getMutationBatchDiagnostics(),
     badgeVisibility: getBadgeVisibilityDiagnostics(),
+    renderLifecycles: getRenderLifecycleDiagnostics(),
+    overlayPlacements: getOverlayPlacementDiagnostics(),
+    overlayPlacementGroups: getOverlayPlacementGroupDiagnostics(),
+    candidateDiscovery: getCandidateDiscoveryDiagnostics(),
+    canonicalization: getCanonicalizationDiagnostics(),
+    visualSourceReconciliation: getVisualSourceReconciliationDiagnostics(),
+    badgeEncapsulation: getBadgeEncapsulationDiagnostics(),
+    translationProtection: getTranslationProtectionDiagnostics(),
+    badgeHostCensus: getBadgeHostCensusDiagnostic(),
+    badgeHostReconciliation: getBadgeHostReconciliationDiagnostics(),
     limits: {
       maxTextNodes: MAX_TEXT_NODES,
       maxPriceLikeElements: MAX_PRICE_LIKE_ELEMENTS,

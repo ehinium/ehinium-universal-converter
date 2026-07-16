@@ -8,6 +8,7 @@ import { renderConversions, type RenderConversionOptions } from "./domRenderer";
 import type { ScanRequest } from "./scanScheduler";
 import { collectTextNodesForScan } from "./scanRoots";
 import { detectGroupedPricesInRoots } from "./groupedPriceDetector";
+import { incrementPerfCounter, measurePerf, measurePerfAsync } from "./perfDiagnostics";
 
 export type ConversionScanResult = {
   scannedNodeCount: number;
@@ -89,7 +90,14 @@ export async function scanConversionRoots(
   const render = dependencies.renderConversions ?? renderConversions;
   const writeDebug = dependencies.debugLog ?? debugLog;
   const roots = request.roots ?? [document.body];
-  const textNodes = await collect(roots);
+  const perfDiagnosticsEnabled = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
+  const textNodes = perfDiagnosticsEnabled
+    ? await measurePerfAsync("candidate-discovery", () => collect(roots))
+    : await collect(roots);
+  if (perfDiagnosticsEnabled) {
+    incrementPerfCounter("totalDomNodesVisited", textNodes.length);
+    incrementPerfCounter("priceLikeElementsInspected", textNodes.length);
+  }
   const hasGroupedCurrencyCandidates =
     textNodes.length === 0 &&
     settings.converterMode !== "units" &&
@@ -109,7 +117,9 @@ export async function scanConversionRoots(
   }
 
   if (settings.converterMode === "units") {
-    renderedCount += renderUnitConversionsOnly(textNodes, settings, render);
+    renderedCount += perfDiagnosticsEnabled
+      ? measurePerf(request.reason === "initial" ? "initial-render" : "badge-reconciliation", () => renderUnitConversionsOnly(textNodes, settings, render))
+      : renderUnitConversionsOnly(textNodes, settings, render);
     return {
       scannedNodeCount: textNodes.length,
       renderedCount,
@@ -117,13 +127,17 @@ export async function scanConversionRoots(
   }
 
   if (settings.converterMode === "everything") {
-    renderedCount += renderUnitConversionsOnly(textNodes, settings, render);
+    renderedCount += perfDiagnosticsEnabled
+      ? measurePerf(request.reason === "initial" ? "initial-render" : "badge-reconciliation", () => renderUnitConversionsOnly(textNodes, settings, render))
+      : renderUnitConversionsOnly(textNodes, settings, render);
   }
 
   let ratesData: { rates: ExchangeRates };
 
   try {
-    ratesData = await loadRates(settings.targetCurrency);
+    ratesData = perfDiagnosticsEnabled
+      ? await measurePerfAsync("rates-cache-lookup", () => loadRates(settings.targetCurrency))
+      : await loadRates(settings.targetCurrency);
   } catch (error) {
     writeDebug({
       type: "error",
@@ -147,13 +161,10 @@ export async function scanConversionRoots(
     };
   }
 
-  renderedCount += renderCurrencyConversionsOnly(
-    textNodes,
-    settings,
-    ratesData.rates,
-    roots,
-    render
-  );
+  const renderCurrencies = () => renderCurrencyConversionsOnly(textNodes, settings, ratesData.rates, roots, render);
+  renderedCount += perfDiagnosticsEnabled
+    ? measurePerf(request.reason === "initial" ? "initial-render" : "badge-reconciliation", renderCurrencies)
+    : renderCurrencies();
 
   return {
     scannedNodeCount: textNodes.length,

@@ -1,5 +1,6 @@
 import { parseCurrencies, type CurrencyMatch } from "../utils/currencyParser";
 import { getContentExclusionDetail, isInsideExcludedContent } from "./domExclusions";
+import { selectPriceAnchor } from "./priceAnchor";
 
 export type TextFragmentMap = {
   node: Text;
@@ -41,6 +42,7 @@ const LOCAL_BOUNDARY_SELECTOR = [
   "button", "input", "select", "textarea", "option", "script", "style", "code",
   "pre", "[contenteditable='true']", "[data-ehinium-badge]",
   "[data-ehinium-converted]", "[data-ehinium-ignore='true']",
+  "[data-euc-owned='true']", "[data-euc-badge='true']",
 ].join(", ");
 
 function hasNestedBlockBoundary(container: HTMLElement): boolean {
@@ -146,30 +148,34 @@ function directDomMatches(node: Text): CurrencyDomMatch[] {
     return [];
   }
 
-  return parseCurrencies(parserInput).map((match) => ({
+  return parseCurrencies(parserInput).flatMap((match) => {
+    const renderingAnchor = selectPriceAnchor([node], parserInput, match).anchor;
+    if (!renderingAnchor) return [];
+    return [{
     parserInput,
     match,
     fragmentMap: [{ node, combinedStart: 0, combinedEnd: parserInput.length }],
     sourceNodes: [node],
     sourceElement,
-    renderingAnchor: sourceElement,
+    renderingAnchor,
     scanKind: "direct",
     directNodeParserSucceeded: true,
     localCombinedScanAttempted: false,
     excludedExtensionFragmentCount: 0,
     combinedTextContainsExtensionUi: false,
-  }));
+    }];
+  });
 }
 
 export function collectCurrencyDomMatches(
   textNodes: readonly Text[]
 ): CurrencyDomMatch[] {
-  const eligibleNodes = new Set(textNodes);
+  const uniqueTextNodes = [...new Set(textNodes)];
   const results: CurrencyDomMatch[] = [];
   const nodesWithoutDirectMatches: Text[] = [];
   const parsedContainers = new Set<HTMLElement>();
 
-  for (const node of textNodes) {
+  for (const node of uniqueTextNodes) {
     const direct = directDomMatches(node);
     if (direct.length > 0) {
       results.push(...direct);
@@ -177,6 +183,8 @@ export function collectCurrencyDomMatches(
       nodesWithoutDirectMatches.push(node);
     }
   }
+
+  const combinedEligibleNodes = new Set(nodesWithoutDirectMatches);
 
   for (const node of nodesWithoutDirectMatches) {
     let container = node.parentElement;
@@ -187,7 +195,7 @@ export function collectCurrencyDomMatches(
       }
 
       parsedContainers.add(container);
-      const local = collectFragments(container, eligibleNodes);
+      const local = collectFragments(container, combinedEligibleNodes);
       if (local) {
         const matches = parseCurrencies(local.input);
 
@@ -201,8 +209,14 @@ export function collectCurrencyDomMatches(
             continue;
           }
 
-          const renderingAnchor = lowestCommonElement(sourceNodes);
+          const commonElement = lowestCommonElement(sourceNodes);
           const sourceElement = sourceNodes[0]?.parentElement;
+          const renderingAnchor = commonElement
+            ? selectPriceAnchor(
+                sourceNodes,
+                sourceNodes.map((sourceNode) => sourceNode.textContent ?? "").join("")
+              ).anchor
+            : null;
           if (!renderingAnchor || !sourceElement) {
             continue;
           }

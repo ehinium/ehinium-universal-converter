@@ -3,6 +3,7 @@ import { fiatCurrencies } from "../data/currencies";
 import { renderCurrencyConversionsOnly } from "../content/conversionScan";
 import { getTextNodes } from "../content/domScanner";
 import { resetRenderedConversions } from "../content/domRenderer";
+import { getBadgeVisibleText } from "../content/badgeManager";
 import { observeDomChanges } from "../content/observer";
 import { getExchangeRates } from "../services/rates";
 import type { ExchangeRates, NormalizedRatesResponse } from "../types/rates";
@@ -475,7 +476,7 @@ function runDomBatch(batch: TestCaseResult[], targetCurrency: string, rates: Exc
     const row = sandbox.querySelector<HTMLElement>(`[data-case-id="${CSS.escape(result.testCase.id)}"]`);
     const badgeElements = [...(row?.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"]') ?? [])];
     const badges: RenderedBadge[] = badgeElements.map((badge) => ({
-      text: badge.textContent ?? "",
+      text: getBadgeVisibleText(badge),
       ariaLabel: badge.getAttribute("aria-label"),
       key: badge.getAttribute("data-ehinium-key"),
       style: badge.getAttribute("data-ehinium-badge-style"),

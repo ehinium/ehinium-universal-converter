@@ -1,6 +1,7 @@
 import {
   EHINIUM_IGNORE_ATTRIBUTE,
   EHINIUM_TOOLTIP_CLASS,
+  EUC_OWNED_ATTRIBUTE,
 } from "./domExclusions";
 
 const TOOLTIP_OFFSET = 12;
@@ -16,6 +17,7 @@ function getTooltipElement(): HTMLDivElement {
 
   element.classList.add(EHINIUM_TOOLTIP_CLASS);
   element.setAttribute(EHINIUM_IGNORE_ATTRIBUTE, "true");
+  element.setAttribute(EUC_OWNED_ATTRIBUTE, "true");
   element.setAttribute("data-ehinium-tooltip", "true");
   element.setAttribute("role", "tooltip");
   element.style.position = "fixed";

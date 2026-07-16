@@ -1,7 +1,28 @@
 import type { CurrencyMatch } from "../utils/currencyParser";
 import type { DebugEvent } from "../content/debug";
 import type { UserSettings } from "./settings";
+import type {
+  BadgeHostCensusDiagnostic,
+  BadgeHostReconciliationDiagnostic,
+} from "../content/badgeHostRegistry";
 import type { BadgeVisibilityDiagnostic } from "../content/badgeVisibility";
+import type { AnchorSafetyDiagnostic } from "../content/priceAnchor";
+import type { ReconciliationDiagnostic } from "../content/currencyMatchState";
+import type { TranslationWrapperDiagnostic } from "../content/translationLineage";
+import type {
+  OverlayPlacementDiagnostic,
+  OverlayPlacementGroupDiagnostic,
+  RenderLifecycleDiagnostic,
+} from "../content/badgeLifecycle";
+import type {
+  CandidateDiscoveryDiagnostic,
+  CanonicalizationDiagnostic,
+  VisualSourceReconciliationDiagnostic,
+} from "../content/priceCandidatePipeline";
+import type {
+  BadgeEncapsulationDiagnostic,
+  TranslationProtectionDiagnostic,
+} from "../content/badgeHost";
 
 export type DiagnosticStage =
   | "visibility"
@@ -113,6 +134,10 @@ export type MatchPipelineDiagnostic = {
   currentOwner: string;
   reconciliationDecision: string;
   badgeConnectivityState: "connected" | "disconnected" | "not-rendered";
+  anchorSafety: AnchorSafetyDiagnostic;
+  reconciliation: ReconciliationDiagnostic;
+  translationWrapper: TranslationWrapperDiagnostic;
+  combinedParentSkipReason?: string;
   exclusionRule?: string;
   exclusionCausingAncestor?: string;
   exclusionCategory?: "extension-ui" | "source-content";
@@ -166,6 +191,16 @@ export type PageDiagnosticReport = {
   productionDebugEvents: DebugEvent[];
   mutationBatches: MutationBatchDiagnostic[];
   badgeVisibility: BadgeVisibilityDiagnostic[];
+  renderLifecycles: RenderLifecycleDiagnostic[];
+  overlayPlacements: OverlayPlacementDiagnostic[];
+  overlayPlacementGroups: OverlayPlacementGroupDiagnostic[];
+  candidateDiscovery: CandidateDiscoveryDiagnostic[];
+  canonicalization: CanonicalizationDiagnostic[];
+  visualSourceReconciliation: VisualSourceReconciliationDiagnostic[];
+  badgeEncapsulation: BadgeEncapsulationDiagnostic[];
+  translationProtection: TranslationProtectionDiagnostic[];
+  badgeHostCensus: BadgeHostCensusDiagnostic;
+  badgeHostReconciliation: BadgeHostReconciliationDiagnostic[];
   limits: {
     maxTextNodes: number;
     maxPriceLikeElements: number;

@@ -1,5 +1,7 @@
 export const EHINIUM_IGNORE_ATTRIBUTE = "data-ehinium-ignore";
 export const EHINIUM_TOOLTIP_CLASS = "ehinium-converter-tooltip";
+export const EUC_OWNED_ATTRIBUTE = "data-euc-owned";
+export const EUC_BADGE_ATTRIBUTE = "data-euc-badge";
 
 const EXCLUDED_CONTENT_SELECTORS = [
   "script",
@@ -14,6 +16,8 @@ const EXCLUDED_CONTENT_SELECTORS = [
   '[contenteditable="true"]',
   "[data-ehinium-converted]",
   "[data-ehinium-badge]",
+  `[${EUC_OWNED_ATTRIBUTE}="true"]`,
+  `[${EUC_BADGE_ATTRIBUTE}="true"]`,
   `[${EHINIUM_IGNORE_ATTRIBUTE}="true"]`,
   `.${EHINIUM_TOOLTIP_CLASS}`,
 ];
@@ -43,7 +47,7 @@ export function getContentExclusionDetail(node: Node): ContentExclusionDetail | 
   for (const selector of EXCLUDED_CONTENT_SELECTORS) {
     const excludedAncestor = element.closest(selector);
     if (excludedAncestor) {
-      const category = /ehinium/iu.test(selector) ? "extension-ui" : "source-content";
+      const category = /(?:ehinium|data-euc)/iu.test(selector) ? "extension-ui" : "source-content";
       return {
         rule: selector,
         element: excludedAncestor,

@@ -12,6 +12,8 @@ import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
 import { getHoverTarget } from "./hoverRegistry";
+import { clearBadgeLifecycles } from "./badgeLifecycle";
+import { getBadgeVisibleText } from "./badgeManager";
 
 const window = new Window();
 
@@ -55,6 +57,7 @@ function expectEqual<T>(actual: T, expected: T, description: string): void {
 }
 
 function createRoot(html: string): HTMLElement {
+  clearBadgeLifecycles(document);
   document.body.innerHTML = "";
 
   const root = document.createElement("div");
@@ -116,7 +119,7 @@ function render(
   render(root, "USD", () => 4.63);
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
-  expectEqual(badge?.textContent, "$4.63", "currency tooltip visible badge text");
+  expectEqual(getBadgeVisibleText(badge), "$4.63", "currency tooltip visible badge text");
   expectEqual(
     badge ? getHoverTarget(badge)?.content : null,
     "16.99 AED → $4.63",
@@ -271,15 +274,12 @@ function render(
     "dark button badge text color"
   );
   expectEqual(
-    badge?.style.background,
+    badge?.style.getPropertyValue("--euc-badge-background"),
     "rgba(255, 255, 255, 0.07)",
     "dark button badge background"
   );
-  expectEqual(badge?.style.fontSize, "11px", "button badge font size");
-  expectEqual(badge?.style.lineHeight, "1.4", "button badge line height");
-  expectEqual(badge?.style.padding, "2px 6px", "button badge padding");
-  expectEqual(badge?.style.borderRadius, "999px", "button badge radius");
-  expectEqual(badge?.style.fontWeight, "600", "button badge font weight");
+  expectEqual(badge?.dataset.ehiniumBadgeStyle, "default", "button badge shadow style variant");
+  expectEqual(badge?.childNodes.length, 0, "button badge light DOM remains empty");
 }
 
 {
@@ -305,7 +305,7 @@ for (const [convertedAmount, expected] of [
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
   expectEqual(
-    badge?.textContent,
+      getBadgeVisibleText(badge),
     expected,
     `currency converted badge ${convertedAmount}`
   );
@@ -356,7 +356,7 @@ for (const [convertedAmount, expected] of [
   render(root, "USD", () => null, "units");
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
-  expectEqual(badge?.textContent, "22.05 lb", "unit tooltip visible badge text");
+  expectEqual(getBadgeVisibleText(badge), "22.05 lb", "unit tooltip visible badge text");
   expectEqual(
     badge ? getHoverTarget(badge)?.content : null,
     "10 kg → 22.05 lb",
@@ -369,7 +369,7 @@ for (const [convertedAmount, expected] of [
   render(root, "USD", () => null, "units", true, "default", "km");
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
-  expectEqual(badge?.textContent, "0.001 km", "small unit badge text");
+  expectEqual(getBadgeVisibleText(badge), "0.001 km", "small unit badge text");
   expectEqual(
     badge ? getHoverTarget(badge)?.content : null,
     "1 m → 0.001 km",
@@ -423,7 +423,7 @@ for (const [convertedAmount, expected] of [
   const rendered = render(root, "EUR", (match) => match.amount * 0.9);
 
   expectEqual(rendered, 0, "existing badge rendered count");
-  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "existing badge total");
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "unowned legacy badge removed");
 }
 
 {
@@ -455,7 +455,7 @@ for (const [convertedAmount, expected] of [
 
   expectEqual(rendered, 1, "units mode rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "units mode badges");
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22.05 lb", "units mode badge text");
+  expectEqual(getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)), "22.05 lb", "units mode badge text");
   expectEqual(conversionCalls, 0, "units mode converter calls");
 }
 
@@ -486,7 +486,7 @@ for (const [convertedAmount, expected] of [
 
   expectEqual(rendered, 1, "units mode mixed rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "units mode mixed badges");
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "22.05 lb", "units mode excludes currency badge");
+  expectEqual(getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)), "22.05 lb", "units mode excludes currency badge");
 }
 
 {
@@ -529,7 +529,7 @@ for (const [convertedAmount, expected] of [
   const rendered = render(root, "USD", () => null, "units");
 
   expectEqual(rendered, 1, "equal numeric temperature rendered count");
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, "-40 °C", "equal numeric temperature badge");
+  expectEqual(getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)), "-40 °C", "equal numeric temperature badge");
 }
 
 for (const converterMode of ["currencies", "units", "everything"] as const) {
@@ -565,8 +565,7 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
   expectEqual(badge?.dataset.ehiniumBadgeStyle, "compact", "compact badge marker");
-  expectEqual(badge?.style.padding, "1px 4px", "compact badge padding");
-  expectEqual(badge?.style.fontSize, "10px", "compact badge font size");
+  expectEqual(badge?.childNodes.length, 0, "compact badge light DOM empty");
 }
 
 {
@@ -575,8 +574,7 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
   expectEqual(badge?.dataset.ehiniumBadgeStyle, "minimal", "minimal badge marker");
-  expectEqual(badge?.style.background, "transparent", "minimal badge background");
-  expectEqual(badge?.style.textDecoration, "underline dotted", "minimal badge decoration");
+  expectEqual(badge?.childNodes.length, 0, "minimal badge light DOM empty");
 }
 
 {
@@ -591,7 +589,7 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
     "cm"
   );
   const badges = [...root.querySelectorAll<HTMLElement>(BADGE_SELECTOR)].map(
-    (badge) => badge.textContent
+    (badge) => getBadgeVisibleText(badge)
   ).sort();
 
   expectEqual(rendered, 2, "selected length target rendered count");
@@ -616,7 +614,7 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
   );
 
   expectEqual(
-    root.querySelector(BADGE_SELECTOR)?.textContent,
+    getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)),
     "81.65 kg",
     "selected weight target badge"
   );
@@ -637,7 +635,7 @@ for (const converterMode of ["currencies", "units", "everything"] as const) {
   );
 
   expectEqual(
-    root.querySelector(BADGE_SELECTOR)?.textContent,
+    getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)),
     "20 °C",
     "selected temperature target badge"
   );
@@ -680,7 +678,7 @@ for (const [source, expected] of [
   );
 
   expectEqual(rendered, 1, `metric ${source} rendered count`);
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, expected, `metric ${source} badge`);
+  expectEqual(getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)), expected, `metric ${source} badge`);
 }
 
 for (const source of ["50 kg", "180 cm", "2 km"] as const) {
@@ -722,7 +720,7 @@ for (const [source, expected] of [
   );
 
   expectEqual(rendered, 1, `imperial ${source} rendered count`);
-  expectEqual(root.querySelector(BADGE_SELECTOR)?.textContent, expected, `imperial ${source} badge`);
+  expectEqual(getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)), expected, `imperial ${source} badge`);
 }
 
 for (const source of ["10 in", "5 ft"] as const) {
@@ -759,7 +757,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   );
 
   expectEqual(
-    root.querySelector(BADGE_SELECTOR)?.textContent,
+    getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)),
     "152.4 cm",
     "metric exact length override badge"
   );
@@ -781,7 +779,7 @@ for (const source of ["10 in", "5 ft"] as const) {
   );
 
   expectEqual(
-    root.querySelector(BADGE_SELECTOR)?.textContent,
+    getBadgeVisibleText(root.querySelector<HTMLElement>(BADGE_SELECTOR)),
     "81.65 kg",
     "imperial exact weight override badge"
   );

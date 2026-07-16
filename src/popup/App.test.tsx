@@ -297,7 +297,7 @@ const vite = await createServer({
   },
   define: { __EUC_DIAGNOSTICS__: "true" },
   root: process.cwd(),
-  server: { middlewareMode: true },
+  server: { middlewareMode: true, watch: { ignored: ["**/performance-audits/**"] } },
 });
 
 let activeRoot: Root | null = null;

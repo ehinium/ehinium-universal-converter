@@ -1,0 +1,1 @@
+Version 0.2.0 introduces a redesigned popup and settings experience with system light/dark mode support, improved keyboard accessibility, unified conversion controls, refined shadcn-style components, and fixes for rate status, popup sizing, select menus, and dark-mode readability.

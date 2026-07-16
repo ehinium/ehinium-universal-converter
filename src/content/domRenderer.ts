@@ -1,4 +1,5 @@
 import {
+  parseCurrencies,
   type CurrencyMatch,
 } from "../utils/currencyParser";
 import {
@@ -36,7 +37,7 @@ import {
   detectGroupedPricesForTextNodes,
   detectGroupedPricesInRoots,
 } from "./groupedPriceDetector";
-import { findPriceAnchor } from "./priceAnchor";
+import { evaluateAnchorSafety, selectPriceAnchor } from "./priceAnchor";
 import {
   collectCurrencyDomMatches,
   collectSourceTextFragments,
@@ -54,6 +55,24 @@ import {
   clearBadgeVisibilityRecords,
   registerBadgeVisibility,
 } from "./badgeVisibility";
+import {
+  clearBadgeLifecycles,
+  registerInlineBadgeLifecycle,
+  shouldSuppressInlineForLifecycle,
+} from "./badgeLifecycle";
+import {
+  beginVisualSourceReconciliationBatch,
+  canonicalizePriceCandidates,
+  clearVisualSourceRegistry,
+  discoverPriceCandidates,
+  reconcileCanonicalVisualSource,
+  registerCanonicalVisualSource,
+} from "./priceCandidatePipeline";
+import { reconcileBadgeHosts } from "./badgeHost";
+import {
+  clearBadgeHostRegistry,
+  registerStandaloneBadgeHost,
+} from "./badgeHostRegistry";
 
 export type RenderConversionOptions = {
   enabled: boolean;
@@ -72,15 +91,6 @@ export type RenderConversionOptions = {
 };
 
 const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
-const UNSAFE_BADGE_PLACEMENT_SELECTOR = [
-  ".twisterSlotDiv",
-  ".twisterSwatchWrapper",
-  "#promoPriceBlockMessage_feature_div",
-  "#vouchers_feature_div",
-  '[id*="coupon"]',
-  '[id*="promo"]',
-  '[id*="promotion"]',
-].join(", ");
 const UNSAFE_INTERACTIVE_CONTROL_SELECTOR = [
   "input",
   "select",
@@ -158,8 +168,10 @@ export function getCurrencyTextNodeRenderSkipReason(node: Text): string | null {
     return "Text node has no content";
   }
 
-  if (!findPriceAnchor(node)) {
-    return "No safe price anchor was found";
+  const selection = selectPriceAnchor([node], node.textContent ?? "");
+  if (!selection.anchor) {
+    const rejectedRule = selection.candidates.at(-1)?.rejectedRule ?? "unknown-rule";
+    return `No safe price anchor was found: ${rejectedRule}`;
   }
 
   return null;
@@ -214,12 +226,53 @@ function isHighConfidenceUnitMatch(match: UnitMatch): boolean {
 
 export function isSafeBadgePlacement(anchor: HTMLElement): boolean {
   const rect = anchor.getBoundingClientRect();
+  const style = getComputedStyle(anchor);
 
   return (
+    anchor.isConnected &&
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.visibility !== "collapse" &&
+    Number(style.opacity || "1") > 0 &&
     rect.width > 0 &&
-    rect.height > 0 &&
-    anchor.closest(UNSAFE_BADGE_PLACEMENT_SELECTOR) === null
+    rect.height > 0
   );
+}
+
+function getCandidateRevalidationReason(
+  candidate: CurrencyDomMatch,
+  targetCurrency: string
+): string | null {
+  const { match, renderingAnchor: anchor } = candidate;
+  const currentInput = [...new Set(candidate.fragmentMap.map((fragment) => fragment.node))]
+    .map((node) => node.textContent ?? "")
+    .join("");
+  if (!candidate.sourceNodes.every((node) => node.isConnected)) return "disconnected-source";
+  if (!anchor.isConnected) return "disconnected-candidate";
+  if (!candidate.sourceNodes.every((node) => anchor.contains(node))) return "source-not-contained";
+  if (currentInput !== candidate.parserInput) return "source-text-changed";
+  if (match.start < 0 || match.end > currentInput.length || match.start >= match.end) return "source-range-invalid";
+  const currentMatch = parseCurrencies(currentInput).find((parsed) =>
+    parsed.start === match.start && parsed.end === match.end
+  );
+  if (!currentMatch || currentMatch.raw !== match.raw) return "source-range-invalid";
+  if (currentMatch.currency !== match.currency) return "source-currency-changed";
+  if (currentMatch.amount !== match.amount) return "source-amount-changed";
+  if (!targetCurrency) return "target-currency-changed";
+  const safetyInput = candidate.scanKind === "direct"
+    ? candidate.parserInput
+    : candidate.sourceNodes.map((node) => node.textContent ?? "").join("");
+  const safety = evaluateAnchorSafety(
+    anchor,
+    candidate.sourceNodes,
+    safetyInput,
+    candidate.scanKind === "direct" ? match : undefined,
+    0
+  );
+  if (!safety.safe) return safety.rejectedRule ?? "unsafe-anchor";
+  const fullscreen = document.fullscreenElement;
+  if (fullscreen && !fullscreen.contains(anchor)) return "outside-fullscreen-element";
+  return null;
 }
 
 function getVerticalDistance(
@@ -396,6 +449,12 @@ function renderUnitConversions(
         continue;
       }
       registerBadgeVisibility(badge, anchor, anchor);
+      registerStandaloneBadgeHost(
+        badge,
+        node,
+        `unit|${serializeBadgeKey(badgeKey)}`,
+        anchor
+      );
 
       debugLog({
         type: "render:unit-badge",
@@ -420,7 +479,9 @@ export function renderConversions(
     return 0;
   }
 
-  const nodes = Array.from(textNodes);
+  reconcileBadgeHosts(document);
+
+  const nodes = [...new Set(textNodes)];
   let renderedCount = 0;
   const shouldRenderCurrencies =
     options.renderCurrencies ?? options.converterMode !== "units";
@@ -432,187 +493,60 @@ export function renderConversions(
       ? detectGroupedPricesInRoots(options.scanRoots)
       : detectGroupedPricesForTextNodes(nodes);
     const groupedPriceAnchors = new Set(groupedPrices.map((match) => match.anchor));
+    const groupedCandidates: CurrencyDomMatch[] = [];
 
-    for (const match of groupedPrices) {
-    const sourceCollection = collectSourceTextFragments(match.anchor);
-    const sourceNodes = sourceCollection.fragments.map((fragment) => fragment.node);
-    if (sourceNodes.length === 0) {
-      continue;
+    for (const grouped of groupedPrices) {
+      const sourceCollection = collectSourceTextFragments(grouped.anchor);
+      const sourceNodes = sourceCollection.fragments.map((fragment) => fragment.node);
+      if (sourceNodes.length === 0) continue;
+      const parsedSourceMatch = parseCurrencies(sourceCollection.input).find((parsed) =>
+        parsed.currency === grouped.currency && Math.abs(parsed.amount - grouped.amount) < 1e-9
+      );
+      const raw = parsedSourceMatch?.raw ?? `${grouped.currency} ${grouped.amount}`;
+      groupedCandidates.push({
+        parserInput: sourceCollection.input,
+        match: parsedSourceMatch ?? {
+          raw,
+          amount: grouped.amount,
+          currency: grouped.currency,
+          start: -1,
+          end: -1,
+          tokenType: "iso",
+          confidence: 1,
+        },
+        fragmentMap: sourceCollection.fragments,
+        sourceNodes,
+        sourceElement: grouped.anchor,
+        renderingAnchor: grouped.anchor,
+        scanKind: "combined-inline",
+        directNodeParserSucceeded: false,
+        localCombinedScanAttempted: true,
+        excludedExtensionFragmentCount: sourceCollection.excludedExtensionFragmentCount,
+        combinedTextContainsExtensionUi: false,
+      });
     }
-    const currencyMatch: CurrencyMatch = {
-      raw: `${match.currency} ${match.amount}`,
-      amount: match.amount,
-      currency: match.currency,
-      start: 0,
-      end: `${match.currency} ${match.amount}`.length,
-      tokenType: "iso",
-      confidence: 1,
-    };
-    const groupedCandidate: CurrencyDomMatch = {
-      parserInput: sourceCollection.input,
-      match: currencyMatch,
-      fragmentMap: sourceCollection.fragments,
-      sourceNodes,
-      sourceElement: match.anchor,
-      renderingAnchor: match.anchor,
-      scanKind: "combined-inline",
-      directNodeParserSucceeded: false,
-      localCombinedScanAttempted: true,
-      excludedExtensionFragmentCount:
-        sourceCollection.excludedExtensionFragmentCount,
-      combinedTextContainsExtensionUi: false,
-    };
 
-    debugLog({
-      type: "match:grouped",
-      sourceCurrency: currencyMatch.currency,
-      targetCurrency: options.targetCurrency,
-      amount: currencyMatch.amount,
-      text: currencyMatch.raw,
+    const eligibleCurrencyNodes = nodes.filter((node) => {
+      if (getCurrencyTextNodeRenderSkipReason(node) !== null) return false;
+      const groupedAncestor = node.parentElement?.closest<HTMLElement>(".a-price");
+      return !groupedAncestor || !groupedPriceAnchors.has(groupedAncestor);
     });
-
-    if (currencyMatch.currency === options.targetCurrency) {
-      debugLog({
-        type: "skip:same-currency",
-        sourceCurrency: currencyMatch.currency,
-        targetCurrency: options.targetCurrency,
-        amount: currencyMatch.amount,
-        text: currencyMatch.raw,
-      });
-      continue;
-    }
-
-    const badgeKey = getBadgeKey(currencyMatch, options.targetCurrency);
-    const duplicateDecision = getDuplicateDecision(
-      groupedCandidate,
-      options.targetCurrency
+    const discoveredDomMatches = [
+      ...groupedCandidates,
+      ...collectCurrencyDomMatches(eligibleCurrencyNodes),
+    ];
+    const canonicalCandidates = canonicalizePriceCandidates(
+      discoverPriceCandidates(discoveredDomMatches, options.targetCurrency, groupedPriceAnchors)
     );
+    beginVisualSourceReconciliationBatch();
 
-    if (duplicateDecision.duplicate) {
-      debugLog({
-        type: "skip:duplicate",
-        sourceCurrency: currencyMatch.currency,
-        targetCurrency: options.targetCurrency,
-        amount: currencyMatch.amount,
-        text: currencyMatch.raw,
-        reason: duplicateDecision.reason,
-      });
-      continue;
-    }
-
-    if (
-      options.badgeVisibility === "always" &&
-      !isSafeBadgePlacement(match.anchor)
-    ) {
-      debugLog({
-        type: "skip:unsafe-placement",
-        sourceCurrency: currencyMatch.currency,
-        targetCurrency: options.targetCurrency,
-        amount: currencyMatch.amount,
-        text: currencyMatch.raw,
-        reason: "Grouped price anchor is not safe for badge placement",
-      });
-      continue;
-    }
-
-    const convertedAmount = options.convertAmount(currencyMatch);
-
-    if (convertedAmount === null || !Number.isFinite(convertedAmount)) {
-      debugLog({
-        type: "error",
-        sourceCurrency: currencyMatch.currency,
-        targetCurrency: options.targetCurrency,
-        amount: currencyMatch.amount,
-        text: currencyMatch.raw,
-        reason: "Grouped price conversion returned an invalid amount",
-      });
-      continue;
-    }
-
-    const formattedAmount = formatConvertedCurrency(
-      convertedAmount,
-      options.targetCurrency
-    );
-    const formattedTooltip = formatTooltip(
-      formatSourceCurrency(currencyMatch.amount, currencyMatch.currency),
-      formattedAmount
-    );
-
-    if (options.badgeVisibility === "hover") {
-      if (
-        registerHoverConversion(
-          match.anchor,
-          duplicateDecision.processedMatchKey,
-          formattedTooltip,
-          {
-            sourceCurrency: currencyMatch.currency,
-            targetCurrency: options.targetCurrency,
-            amount: currencyMatch.amount,
-            formatted: formattedAmount,
-            text: currencyMatch.raw,
-          }
-        )
-      ) {
-        renderedCount++;
-      }
-      continue;
-    }
-
-    const badge = createBadge(
-      formattedAmount,
-      formattedTooltip,
-      options.badgeStyle
-    );
-
-    markBadge(badge, badgeKey);
-    if (!insertGroupedBadgeIfNearby(match.anchor, badge)) {
-      debugLog({
-        type: "skip:unsafe-placement",
-        sourceCurrency: currencyMatch.currency,
-        targetCurrency: options.targetCurrency,
-        amount: currencyMatch.amount,
-        formatted: formattedAmount,
-        text: currencyMatch.raw,
-        reason: "Grouped price badge was too far from its anchor",
-      });
-      continue;
-    }
-
-    recordProcessedMatch(
-      groupedCandidate,
-      options.targetCurrency,
-      badge,
-      duplicateDecision
-    );
-    registerBadgeVisibility(badge, match.anchor, match.anchor);
-
-    debugLog({
-      type: "render:badge",
-      sourceCurrency: currencyMatch.currency,
-      targetCurrency: options.targetCurrency,
-      amount: currencyMatch.amount,
-      formatted: formattedAmount,
-      text: currencyMatch.raw,
-    });
-      renderedCount++;
-    }
-
-    const eligibleCurrencyNodes = nodes.filter(
-      (node) => {
-        if (getCurrencyTextNodeRenderSkipReason(node) !== null) {
-          return false;
-        }
-
-        const groupedAncestor = node.parentElement?.closest<HTMLElement>(".a-price");
-        return !groupedAncestor || !groupedPriceAnchors.has(groupedAncestor);
-      }
-    );
-
-    for (const candidate of collectCurrencyDomMatches(eligibleCurrencyNodes)) {
+    for (const priceCandidate of canonicalCandidates) {
+      const candidate = priceCandidate.domMatch;
       const { match } = candidate;
       const anchor = candidate.renderingAnchor;
+      const aggregateFallback = priceCandidate.discoveryMode === "aggregate-fallback";
       debugLog({
-        type: "match:text",
+        type: aggregateFallback ? "match:grouped" : "match:text",
         sourceCurrency: match.currency,
         targetCurrency: options.targetCurrency,
         amount: match.amount,
@@ -630,13 +564,41 @@ export function renderConversions(
         continue;
       }
 
-      const badgeKey = getBadgeKey(match, options.targetCurrency);
+      const canonicalBadge = reconcileCanonicalVisualSource(priceCandidate);
       const duplicateDecision = getDuplicateDecision(
         candidate,
         options.targetCurrency
       );
 
+      if (canonicalBadge?.isConnected) {
+        if (!duplicateDecision.duplicate) {
+          recordProcessedMatch(
+            candidate,
+            options.targetCurrency,
+            canonicalBadge,
+            duplicateDecision,
+            false
+          );
+        }
+        registerBadgeVisibility(canonicalBadge, candidate.sourceElement, anchor);
+        if (!aggregateFallback && canonicalBadge.dataset.eucRenderMode !== "overlay") {
+          registerInlineBadgeLifecycle(candidate, options.targetCurrency, canonicalBadge);
+        }
+        debugLog({
+          type: "skip:duplicate",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: "Existing canonical badge reused",
+        });
+        continue;
+      }
+
       if (duplicateDecision.duplicate) {
+        if (duplicateDecision.existingBadge?.isConnected) {
+          registerCanonicalVisualSource(priceCandidate, duplicateDecision.existingBadge);
+        }
         debugLog({
           type: "skip:duplicate",
           sourceCurrency: match.currency,
@@ -644,6 +606,18 @@ export function renderConversions(
           amount: match.amount,
           text: match.raw,
           reason: duplicateDecision.reason,
+        });
+        continue;
+      }
+
+      if (shouldSuppressInlineForLifecycle(candidate, options.targetCurrency)) {
+        debugLog({
+          type: "skip:duplicate",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: "Portal overlay fallback already owns this unstable source",
         });
         continue;
       }
@@ -687,6 +661,21 @@ export function renderConversions(
         formattedAmount
       );
 
+      const revalidationReason = aggregateFallback
+        ? null
+        : getCandidateRevalidationReason(candidate, options.targetCurrency);
+      if (revalidationReason) {
+        debugLog({
+          type: "skip:unsafe-placement",
+          sourceCurrency: match.currency,
+          targetCurrency: options.targetCurrency,
+          amount: match.amount,
+          text: match.raw,
+          reason: `Stale render attempt discarded: ${revalidationReason}`,
+        });
+        continue;
+      }
+
       if (options.badgeVisibility === "hover") {
         if (
           registerHoverConversion(
@@ -707,6 +696,7 @@ export function renderConversions(
         continue;
       }
 
+      const badgeKey = getBadgeKey(match, options.targetCurrency);
       const badge = createBadge(
         formattedAmount,
         formattedTooltip,
@@ -715,7 +705,7 @@ export function renderConversions(
 
       markBadge(badge, badgeKey);
       const inserted =
-        candidate.scanKind === "direct"
+        !aggregateFallback && candidate.scanKind === "direct"
           ? insertTextBadgeIfNearby(candidate.sourceNodes[0], anchor, badge)
           : insertGroupedBadgeIfNearby(anchor, badge);
       if (!inserted) {
@@ -738,6 +728,10 @@ export function renderConversions(
         duplicateDecision
       );
       registerBadgeVisibility(badge, candidate.sourceElement, anchor);
+      registerCanonicalVisualSource(priceCandidate, badge);
+      if (!aggregateFallback) {
+        registerInlineBadgeLifecycle(candidate, options.targetCurrency, badge);
+      }
 
       debugLog({
         type: "render:badge",
@@ -759,7 +753,10 @@ export function renderConversions(
 }
 
 export function resetRenderedConversions(root: ParentNode): void {
+  clearVisualSourceRegistry(root);
+  clearBadgeLifecycles(root);
   clearBadgeVisibilityRecords(root);
   removeBadges(root);
+  if (root === document) clearBadgeHostRegistry();
   clearHoverTargets();
 }

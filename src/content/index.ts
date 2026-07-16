@@ -36,6 +36,23 @@ import {
   startBadgeVisibilityManager,
   stopBadgeVisibilityManager,
 } from "./badgeVisibility";
+import {
+  capturePerfMemory,
+  exposePerfDiagnosticsApi,
+  incrementPerfCounter,
+  measurePerfAsync,
+  recordPerfBatch,
+  recordPerfMeasurement,
+  setPendingWorkProvider,
+  setPerfSettings,
+  startPerfDiagnostics,
+} from "./perfDiagnostics";
+
+const PERF_DIAGNOSTICS_ENABLED =
+  typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
+const CONTENT_SCRIPT_EVALUATION_STARTED_AT = PERF_DIAGNOSTICS_ENABLED
+  ? performance.now()
+  : 0;
 
 declare global {
   interface Window {
@@ -313,6 +330,7 @@ function settingsChangedDuringScan(
 }
 
 async function scanConversions(request: ScanRequest): Promise<number> {
+  const perfStartedAt = PERF_DIAGNOSTICS_ENABLED ? performance.now() : 0;
   const settings = currentSettings;
   const version = settingsVersion;
 
@@ -325,15 +343,35 @@ async function scanConversions(request: ScanRequest): Promise<number> {
   }
 
   const roots = request.roots ?? [document.body];
-  const result = await scanConversionRoots({
-    ...request,
-    roots,
-  }, settings, {
-    settingsChanged() {
-      return settingsChangedDuringScan(settings, version);
-    },
-    debugLog,
+  const scanOperation = () => scanConversionRoots({ ...request, roots }, settings, {
+    settingsChanged() { return settingsChangedDuringScan(settings, version); }, debugLog,
   });
+  const result = PERF_DIAGNOSTICS_ENABLED
+    ? await measurePerfAsync(request.reason === "initial" ? "initial-dom-scan" : "mutation-batch-processing", scanOperation)
+    : await scanOperation();
+
+  if (PERF_DIAGNOSTICS_ENABLED) {
+    const duration = performance.now() - perfStartedAt;
+    incrementPerfCounter("totalTextNodesVisited", result.scannedNodeCount);
+    incrementPerfCounter("textNodesScanned", result.scannedNodeCount);
+    incrementPerfCounter("processedRoots", roots.length);
+    incrementPerfCounter(request.roots === null ? "fullDocumentRescans" : "localSubtreeRescans");
+    incrementPerfCounter("inlineBadgeAttempts", result.renderedCount);
+    incrementPerfCounter("inlineBadgesInserted", result.renderedCount);
+    recordPerfBatch({
+      trigger: request.reason,
+      totalDuration: duration,
+      affectedRootCount: roots.length,
+      affectedRootSelectors: roots.map((root) => root instanceof Element ? root.tagName.toLowerCase() : root.nodeName.toLowerCase()),
+      nodesVisited: result.scannedNodeCount,
+      textNodesScanned: result.scannedNodeCount,
+      badgesInserted: result.renderedCount,
+      fullPageScan: request.roots === null,
+      fullPageScanReason: request.roots === null ? request.reason : undefined,
+      estimatedDomCoveragePercent: request.roots === null ? 100 : undefined,
+    });
+    if (request.reason === "initial") capturePerfMemory("after-initial-render");
+  }
 
   if (request.reason === "mutation" && __EUC_DIAGNOSTICS__) {
     finalizePendingMutationDiagnostics(consumeReconciliationCounters());
@@ -424,11 +462,21 @@ function handleSettingsChange(settings: UserSettings): void {
 }
 
 async function run(): Promise<void> {
+  if (PERF_DIAGNOSTICS_ENABLED) {
+    startPerfDiagnostics();
+    recordPerfMeasurement("content-script-evaluation", CONTENT_SCRIPT_EVALUATION_STARTED_AT,
+      performance.now() - CONTENT_SCRIPT_EVALUATION_STARTED_AT);
+    setPendingWorkProvider(() => scanScheduler.getState());
+    exposePerfDiagnosticsApi();
+  }
   exposeDebugHelper();
   registerMessageListener();
   console.log("[EUC] Content script loaded");
 
-  currentSettings = await getSettings();
+  currentSettings = PERF_DIAGNOSTICS_ENABLED
+    ? await measurePerfAsync("settings-load", getSettings)
+    : await getSettings();
+  if (PERF_DIAGNOSTICS_ENABLED) setPerfSettings(currentSettings);
   subscribeToSettingsChanges(handleSettingsChange);
 
   if (!domainIsAllowed(currentSettings)) {

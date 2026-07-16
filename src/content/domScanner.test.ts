@@ -32,6 +32,12 @@ document.body.append(badge);
 
 expectEqual(getTextNodes(badge).length, 0, "EUC badge root is ignored");
 
+const stableOwned = document.createElement("span");
+stableOwned.setAttribute("data-euc-owned", "true");
+stableOwned.textContent = "TRY 338";
+document.body.append(stableOwned);
+expectEqual(getTextNodes(stableOwned).length, 0, "stable EUC-owned root is ignored");
+
 const hidden = document.createElement("div");
 hidden.hidden = true;
 hidden.textContent = "USD 100";

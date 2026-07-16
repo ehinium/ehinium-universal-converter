@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ehinium.dev/schemas/performance-audit-v1.json",
+  "title": "Ehinium performance audit v1",
+  "type": "object",
+  "required": ["schema", "audit", "environment", "extension", "modes", "comparisons", "warnings", "artifacts"],
+  "properties": {
+    "schema": { "const": "ehinium-performance-audit/v1" },
+    "audit": {
+      "type": "object",
+      "required": ["urls", "startedAt", "completedAt", "runsPerMode", "profiles"],
+      "properties": {
+        "urls": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "runsPerMode": { "type": "integer", "minimum": 2 },
+        "profiles": { "type": "array", "items": { "enum": ["desktop", "throttled"] } }
+      }
+    },
+    "environment": { "type": "object" },
+    "extension": { "type": "object" },
+    "modes": {
+      "type": "object",
+      "required": ["baseline", "extension-disabled", "extension-enabled", "diagnostics-enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "baseline": { "$ref": "#/$defs/mode" },
+        "extension-disabled": { "$ref": "#/$defs/mode" },
+        "extension-enabled": { "$ref": "#/$defs/mode" },
+        "diagnostics-enabled": { "$ref": "#/$defs/mode" }
+      }
+    },
+    "comparisons": { "type": "object" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "artifacts": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "mode": {
+      "type": "object",
+      "required": ["runs", "summary"],
+      "properties": {
+        "runs": { "type": "array", "items": { "type": "object" } },
+        "summary": { "type": "object" }
+      }
+    }
+  }
+}

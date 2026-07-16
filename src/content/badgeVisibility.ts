@@ -78,6 +78,8 @@ const EXTENSION_OWNED_SELECTOR = [
   '[data-ehinium-converted="true"]',
   '[data-ehinium-ignore="true"]',
   "[data-ehinium-tooltip]",
+  '[data-euc-owned="true"]',
+  '[data-euc-badge="true"]',
 ].join(", ");
 const SEMANTIC_OVERLAY_SELECTOR = [
   "dialog[open]",
@@ -313,12 +315,14 @@ function decideVisibility(
 
 function applyVisibility(record: BadgeRecord, reason: BadgeVisibilityReason): void {
   const visible = reason === "visible";
+  const passiveOverlay = record.badge.dataset.eucOverlayBadge === "true";
   record.previousReason = record.reason;
   record.reason = reason;
   record.visible = visible;
+  record.badge.dataset.eucVisibilityReason = reason;
   record.badge.style.visibility = visible ? "" : "hidden";
-  record.badge.style.pointerEvents = visible ? "auto" : "none";
-  record.badge.setAttribute("aria-hidden", visible ? "false" : "true");
+  record.badge.style.pointerEvents = passiveOverlay ? "none" : visible ? "auto" : "none";
+  record.badge.setAttribute("aria-hidden", passiveOverlay ? "true" : visible ? "false" : "true");
 }
 
 function getDiagnosticWarnings(
@@ -401,6 +405,8 @@ export function registerBadgeVisibility(
   source: HTMLElement,
   anchor: HTMLElement
 ): void {
+  const previous = records.get(badge);
+  if (previous && previous.source !== source) resizeObserver?.unobserve(previous.source);
   const record: BadgeRecord = {
     badge,
     source,

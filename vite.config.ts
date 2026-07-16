@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const isContentBuild = process.env.BUILD_TARGET === "content";
 const diagnosticsEnabled = process.env.EUC_DIAGNOSTICS === "true";
+const performanceDiagnosticsEnabled =
+  process.env.EUC_PERFORMANCE_DIAGNOSTICS === "true";
+const outputDirectory = performanceDiagnosticsEnabled ? "dist-perf" : "dist";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -15,9 +18,11 @@ export default defineConfig({
   },
   define: {
     __EUC_DIAGNOSTICS__: JSON.stringify(diagnosticsEnabled),
+    __EUC_PERF_DIAGNOSTICS__: JSON.stringify(performanceDiagnosticsEnabled),
   },
   build: isContentBuild
     ? {
+      outDir: outputDirectory,
       emptyOutDir: false,
       lib: {
         entry: "src/content/index.ts",
@@ -27,6 +32,7 @@ export default defineConfig({
       },
     }
     : {
+      outDir: outputDirectory,
       rollupOptions: {
         input: {
           popup: "index.html",

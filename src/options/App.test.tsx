@@ -208,7 +208,7 @@ const storageListeners = new Set<(changes: Record<string, { newValue?: unknown }
 
 const chromeStub = {
   runtime: {
-    getManifest: () => ({ version: "0.1.0" }),
+    getManifest: () => ({ version: "0.2.0" }),
     openOptionsPage: async () => undefined,
   },
   storage: {
@@ -338,7 +338,7 @@ const vite = await createServer({
   resolve: { alias: { "@": fileURLToPath(new URL("../", import.meta.url)) } },
   define: { __EUC_DIAGNOSTICS__: "false" },
   root: process.cwd(),
-  server: { middlewareMode: true },
+  server: { middlewareMode: true, watch: { ignored: ["**/performance-audits/**"] } },
 });
 
 let root: Root | null = null;
@@ -363,6 +363,11 @@ try {
     document.querySelector("header")?.textContent?.includes("Ehinium Universal Converter"),
     "Settings header should expose the exact product name"
   );
+  const settingsHeader = getElement<HTMLElement>("header");
+  const settingsLogo = getElement<HTMLImageElement>('header img[src="/icons/icon-128.png"]');
+  expect(settingsLogo.classList.contains("size-9"), "Settings header should retain a compact visible logo");
+  expect(!settingsHeader.textContent?.includes("Configure conversions, website rules, and appearance."), "Settings header should remove the descriptive sentence");
+  expect(settingsHeader.classList.contains("border-b") && settingsHeader.classList.contains("border-border"), "Settings header should retain its subtle bottom separator");
   expectEqual(
     Array.from(document.querySelectorAll("nav button"), (button) => button.textContent?.trim()),
     ["General", "Currencies", "Units", "Website rules", "Appearance", "About"],
@@ -444,7 +449,12 @@ try {
   expect(optionsSource.includes("max-w-[1120px]"), "Options shell should retain its restrained desktop width contract");
   expect(optionsSource.includes("lg:grid-cols-[192px_minmax(0,1fr)]") && optionsSource.includes("lg:gap-10"), "Options shell should use the refined desktop grid");
   expect(optionsSource.includes('max-w-[780px]'), "Options main content should remain width-constrained");
-  expect(optionsHeaderSource.includes('max-w-[1120px]') && optionsHeaderSource.includes('py-4'), "Settings header should align with the page grid and remain compact");
+  expect(optionsHeaderSource.includes('max-w-[1120px]') && optionsHeaderSource.includes('px-6') && optionsHeaderSource.includes('sm:px-8'), "Settings header should align with the page grid");
+  expect(optionsHeaderSource.includes('py-3') && !optionsHeaderSource.includes('py-4'), "Settings header should use reduced vertical padding");
+  expect(optionsHeaderSource.includes('size-9') && !optionsHeaderSource.includes('size-10'), "Settings header should use the reduced logo size");
+  expect(optionsHeaderSource.includes('gap-2.5') && optionsHeaderSource.includes('gap-0.5'), "Settings header should use compact horizontal and title spacing");
+  expect(optionsHeaderSource.includes('text-[22px]') && optionsHeaderSource.includes('text-xs'), "Settings header should use the compact title and product-name scale");
+  expect(!optionsHeaderSource.includes('Configure conversions, website rules, and appearance.'), "Settings header source should omit the former description");
   expect(optionsSectionSource.includes('gap-5') && optionsSectionSource.includes('mt-1.5'), "Sections should share the refined vertical rhythm");
   expect(controlWidthsSource.includes('short: "w-full sm:w-52 sm:max-w-[50%]"') && controlWidthsSource.includes('standard: "w-full sm:w-72 sm:max-w-[50%]"') && controlWidthsSource.includes('wide: "w-full sm:w-80 sm:max-w-[50%]"'), "Control widths should use shared responsive presets");
   expect(appearanceSectionSource.match(/settingsControlWidths\.short/gu)?.length === 2, "Equivalent appearance selects should share the short width preset");
@@ -553,6 +563,12 @@ try {
   await changeValue(getElement<HTMLTextAreaElement>("#blacklist-domains"), "example.com\nblocked.test", "input");
   await waitFor(() => expectEqual(storedSettings.blacklist, ["example.com", "blocked.test"], "blacklist normalization"), "blacklist save");
   await openSection("About");
+  const aboutSection = getElement<HTMLElement>("#about");
+  const autosaveStatus = Array.from(document.querySelectorAll<HTMLElement>('[role="status"]')).find(
+    (element) => element.textContent?.includes("Settings saved automatically.")
+  );
+  expect(Boolean(autosaveStatus), "Global autosave status should remain available");
+  expect(!aboutSection.contains(autosaveStatus ?? null), "Global autosave status should not be part of About");
   await openSection("Website rules");
   expect(
     getElement<HTMLTextAreaElement>("#whitelist-domains") === whitelistField,
@@ -593,8 +609,58 @@ try {
   );
 
   await openSection("About");
-  expect(document.querySelector("#about")?.textContent?.includes("0.1.0"), "About should expose manifest version");
-  expect(document.querySelector("#about")?.textContent?.includes("Frankfurter with Fawaz fallback"), "About should expose existing providers");
+  expect(aboutSection.textContent?.includes("0.2.0"), "About should expose manifest version");
+  expect(aboutSection.textContent?.includes("Frankfurter with Fawaz fallback"), "About should expose existing providers");
+  expect(aboutSection.textContent?.includes("Ehsan Rabipour"), "About should identify the creator");
+  const creatorName = Array.from(aboutSection.querySelectorAll("p")).find(
+    (element) => element.textContent?.trim() === "Ehsan Rabipour"
+  );
+  expectEqual(creatorName?.nextElementSibling?.textContent?.trim(), "Creator", "creator subtitle");
+  expect(
+    !aboutSection.textContent?.includes("Product designer and creator of Ehinium Universal Converter."),
+    "About should remove the former creator subtitle"
+  );
+  expect(
+    !aboutSection.textContent?.includes("Designed and built by Ehsan Rabipour."),
+    "About should remove the standalone creator description"
+  );
+  expect(
+    !Array.from(aboutSection.querySelectorAll("h1, h2, h3, h4, h5, h6, [data-slot='card-title']")).some(
+      (element) => element.textContent?.trim() === "Creator"
+    ),
+    "About should remove the standalone Creator heading"
+  );
+  const versionLabel = Array.from(aboutSection.querySelectorAll("p")).find(
+    (element) => element.textContent?.trim() === "Version"
+  );
+  const projectLabel = Array.from(aboutSection.querySelectorAll("p")).find(
+    (element) => element.textContent?.trim() === "Project and legal"
+  );
+  expect(Boolean(projectLabel), "Project and legal should remain visible");
+  expectEqual(projectLabel?.className, versionLabel?.className, "shared About label typography");
+
+  const expectedAboutLinks = [
+    ["Email", "mailto:hello@ehsanrp.com", false],
+    ["Telegram", "https://t.me/ehinium", true],
+    ["X", "https://x.com/ehinium", true],
+    ["Instagram", "https://instagram.com/ehinium", true],
+    ["GitHub repository", "https://github.com/ehinium/ehinium-universal-converter", true],
+    ["Privacy policy", "https://ehinium.github.io/ehinium-universal-converter/privacy.html", true],
+  ] as const;
+
+  for (const [label, href, external] of expectedAboutLinks) {
+    const link = aboutSection.querySelector<HTMLAnchorElement>(`a[aria-label^="${label}:"]`);
+    expect(Boolean(link), `${label} link should have an accessible name`);
+    expectEqual(link?.getAttribute("href"), href, `${label} link destination`);
+    expect(Boolean(link?.textContent?.trim()), `${label} link should have a visible label`);
+    if (external) {
+      expectEqual(link?.getAttribute("target"), "_blank", `${label} external target`);
+      const rel = link?.getAttribute("rel")?.split(/\s+/) ?? [];
+      expect(rel.includes("noreferrer") && rel.includes("noopener"), `${label} external rel safety`);
+    } else {
+      expectEqual(link?.getAttribute("target"), null, `${label} mail link target`);
+    }
+  }
   expect(settingsWriteCount >= 12, "Options interactions should persist through the settings controller");
 } finally {
   if (root) {

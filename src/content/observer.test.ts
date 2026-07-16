@@ -4,8 +4,10 @@ import { observeDomChanges } from "./observer";
 const window = new Window();
 
 Object.assign(globalThis, {
+  window,
   document: window.document,
   Element: window.Element,
+  HTMLElement: window.HTMLElement,
   MutationObserver: window.MutationObserver,
   Node: window.Node,
   Text: window.Text,
@@ -36,6 +38,14 @@ document.body.append(badge);
 badge.textContent = "$4.63";
 await wait();
 expectEqual(scanCount, 0, "badge mutation ignored");
+
+const stableBadge = document.createElement("span");
+stableBadge.setAttribute("data-euc-owned", "true");
+stableBadge.setAttribute("data-euc-badge", "true");
+document.body.append(stableBadge);
+stableBadge.textContent = "$9.99";
+await wait();
+expectEqual(scanCount, 0, "stable extension-owned mutation ignored");
 
 const price = document.createElement("span");
 price.textContent = "EUR 100";

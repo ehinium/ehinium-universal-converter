@@ -84,60 +84,59 @@ export default function App() {
               Loading settings...
             </div>
           ) : settings ? (
-            <div className="grid gap-12">
-              <GeneralSection
-                settings={settings}
-                isSaving={isSaving}
-                controlsDisabled={controlsDisabled}
-                onEnabledChange={(enabled) => updateSettings({ ...settings, enabled })}
-                onModeChange={(mode) => updateSetting("converterMode", mode)}
-              />
-              <CurrenciesSection
-                targetCurrency={settings.targetCurrency}
-                currencies={currencies}
-                rateStatus={rateStatus}
-                isRefreshingRates={isRefreshingRates}
-                disabled={controlsDisabled}
-                onTargetCurrencyChange={updateTargetCurrency}
-                onRefreshRates={refreshRates}
-              />
-              <UnitsSection
-                settings={settings}
-                disabled={controlsDisabled}
-                onSettingChange={updateSetting}
-              />
-              <WebsiteRulesSection
-                settings={settings}
-                whitelistDraft={whitelistDraft}
-                blacklistDraft={blacklistDraft}
-                disabled={controlsDisabled}
-                onDomainsChange={updateDomains}
-              />
-              <AppearanceSection
-                settings={settings}
-                disabled={controlsDisabled}
-                onSettingChange={updateSetting}
-              />
-              <AboutSection />
-            </div>
+            <>
+              {error ? (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : (
+                <p className="mb-4 min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
+                  {settingsApplyStatus}
+                </p>
+              )}
+              <div className="grid gap-12">
+                <GeneralSection
+                  settings={settings}
+                  isSaving={isSaving}
+                  controlsDisabled={controlsDisabled}
+                  onEnabledChange={(enabled) => updateSettings({ ...settings, enabled })}
+                  onModeChange={(mode) => updateSetting("converterMode", mode)}
+                />
+                <CurrenciesSection
+                  targetCurrency={settings.targetCurrency}
+                  currencies={currencies}
+                  rateStatus={rateStatus}
+                  isRefreshingRates={isRefreshingRates}
+                  disabled={controlsDisabled}
+                  onTargetCurrencyChange={updateTargetCurrency}
+                  onRefreshRates={refreshRates}
+                />
+                <UnitsSection
+                  settings={settings}
+                  disabled={controlsDisabled}
+                  onSettingChange={updateSetting}
+                />
+                <WebsiteRulesSection
+                  settings={settings}
+                  whitelistDraft={whitelistDraft}
+                  blacklistDraft={blacklistDraft}
+                  disabled={controlsDisabled}
+                  onDomainsChange={updateDomains}
+                />
+                <AppearanceSection
+                  settings={settings}
+                  disabled={controlsDisabled}
+                  onSettingChange={updateSetting}
+                />
+                <AboutSection />
+              </div>
+            </>
           ) : (
             <Alert variant="destructive">
               <AlertTitle>Settings unavailable</AlertTitle>
               <AlertDescription>{error ?? "Unable to load settings."}</AlertDescription>
             </Alert>
           )}
-
-          {!isLoading && settings ? (
-            error ? (
-              <Alert variant="destructive" className="mt-4">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : (
-              <p className="mt-4 min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
-                {settingsApplyStatus}
-              </p>
-            )
-          ) : null}
         </div>
       </div>
     </main>

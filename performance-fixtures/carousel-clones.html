@@ -1,0 +1,1 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Carousel clones</title></head><body><main id="carousel"></main><script>for(let i=0;i<12;i++)carousel.insertAdjacentHTML('beforeend',`<article data-slide="${i%4}" class="${i>3?'clone':''}">Product ${i%4}: $${(i%4+1)*25}.00</article>`);setInterval(()=>carousel.append(carousel.firstElementChild),250)</script></body></html>

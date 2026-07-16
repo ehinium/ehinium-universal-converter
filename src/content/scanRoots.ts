@@ -28,6 +28,10 @@ function dedupeRoots(roots: readonly Node[]): Node[] {
       continue;
     }
 
+    for (let index = uniqueRoots.length - 1; index >= 0; index--) {
+      if (root.contains(uniqueRoots[index])) uniqueRoots.splice(index, 1);
+    }
+
     uniqueRoots.push(root);
   }
 

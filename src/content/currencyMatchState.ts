@@ -3,10 +3,34 @@ import {
   collectSourceTextFragments,
   type CurrencyDomMatch,
 } from "./currencyDomMatches";
+import { findExistingLineageBadges } from "./translationLineage";
+import { markBadgeRemovalIntentional } from "./badgeLifecycle";
 
 type ProcessedMatchRecord = {
   inputVersion: string;
   badge: HTMLElement;
+  sourceNodes: readonly Text[];
+  inputNodes: readonly Text[];
+  anchor: HTMLElement;
+  parserInput: string;
+  start: number;
+  end: number;
+  sourceCurrency: string;
+  amount: number;
+  targetCurrency: string;
+};
+
+export type ReconciliationDiagnostic = {
+  ownerRecordFound: boolean;
+  badgeConnected: boolean;
+  ownerConnected: boolean;
+  ownerContainsBadge: boolean;
+  sourceConnected: boolean;
+  ownerMatchesSource: boolean;
+  textVersionMatches: boolean;
+  rangeMatches: boolean;
+  fingerprintMatches: boolean;
+  staleRecordRemoved: boolean;
 };
 
 export type ReconciliationDecisionType =
@@ -29,6 +53,8 @@ export type DuplicateDecision = {
   reason?: string;
   previousOwner?: string;
   badgeConnected?: boolean;
+  existingBadge?: HTMLElement;
+  reconciliation: ReconciliationDiagnostic;
 };
 
 const processedMatches = new WeakMap<Text, Map<string, ProcessedMatchRecord>>();
@@ -175,36 +201,73 @@ export function getProcessedMatchKey(
   ].join("|");
 }
 
-function removeStaleRecords(primaryNode: Text, inputVersion: string): void {
+function currentParserInput(record: ProcessedMatchRecord): string {
+  return record.inputNodes.map((node) => node.textContent ?? "").join("");
+}
+
+function inspectRecord(
+  record: ProcessedMatchRecord | undefined,
+  candidate: CurrencyDomMatch,
+  targetCurrency: string,
+  sourceFingerprint: string
+): ReconciliationDiagnostic {
+  const owner = record?.badge.parentElement ?? null;
+  const badgeConnected = record?.badge.isConnected ?? false;
+  const sourceConnected = record?.sourceNodes.every((node) => node.isConnected) ?? candidate.sourceNodes.every((node) => node.isConnected);
+  const ownerConnected = owner?.isConnected ?? false;
+  const ownerContainsBadge = !!owner && !!record && owner.contains(record.badge);
+  const ownerMatchesSource = !!record && !!owner && candidate.sourceNodes.every((node) => owner.contains(node)) &&
+    record.sourceNodes.length === candidate.sourceNodes.length &&
+    record.sourceNodes.every((node, index) => node === candidate.sourceNodes[index]) &&
+    record.anchor === candidate.renderingAnchor && candidate.sourceNodes.every((node) => record.anchor.contains(node));
+  const textVersionMatches = !!record && record.parserInput === candidate.parserInput && currentParserInput(record) === record.parserInput;
+  const rangeMatches = !!record && record.start === candidate.match.start && record.end === candidate.match.end &&
+    record.sourceCurrency === candidate.match.currency && record.amount === candidate.match.amount &&
+    record.targetCurrency === targetCurrency &&
+    currentParserInput(record).slice(record.start, record.end) === candidate.match.raw;
+  const fingerprintMatches = !!record && record.badge.dataset.ehiniumSourceFingerprint === sourceFingerprint;
+  return {
+    ownerRecordFound: record !== undefined,
+    badgeConnected,
+    ownerConnected,
+    ownerContainsBadge,
+    sourceConnected,
+    ownerMatchesSource,
+    textVersionMatches,
+    rangeMatches,
+    fingerprintMatches,
+    staleRecordRemoved: false,
+  };
+}
+
+function removeStaleRecords(primaryNode: Text, inputVersion: string): boolean {
   const records = processedMatches.get(primaryNode);
   if (!records) {
-    return;
+    return false;
   }
+
+  let removed = false;
 
   for (const [key, record] of records) {
     if (record.inputVersion !== inputVersion) {
+      markBadgeRemovalIntentional(record.badge);
       record.badge.remove();
       records.delete(key);
+      removed = true;
     } else if (!record.badge.isConnected) {
       records.delete(key);
+      removed = true;
     }
   }
 
   if (records.size === 0) {
     processedMatches.delete(primaryNode);
   }
+  return removed;
 }
 
 function badgesInScope(scope: Element): HTMLElement[] {
   return [...scope.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"]')];
-}
-
-function normalizeAmount(amount: number): string {
-  return amount.toFixed(6).replace(/0+$/u, "").replace(/\.$/u, "");
-}
-
-function legacyBadgeKey(candidate: CurrencyDomMatch, targetCurrency: string): string {
-  return `${normalizeAmount(candidate.match.amount)}|${candidate.match.currency}|${targetCurrency}`;
 }
 
 function applyOwnershipMetadata(
@@ -213,6 +276,8 @@ function applyOwnershipMetadata(
   targetCurrency: string,
   decision: Pick<DuplicateDecision, "ownerPositionKey" | "sourceFingerprint" | "scopeFingerprint">
 ): void {
+  badge.setAttribute("data-euc-owned", "true");
+  badge.setAttribute("data-euc-badge", "true");
   badge.setAttribute("data-ehinium-owner-id", `${decision.ownerPositionKey}:${decision.sourceFingerprint}`);
   badge.setAttribute("data-ehinium-owner-position", decision.ownerPositionKey);
   badge.setAttribute("data-ehinium-source-fingerprint", decision.sourceFingerprint);
@@ -230,7 +295,8 @@ export function getDuplicateDecision(
   const inputVersion = hashText(candidate.parserInput);
   const processedMatchKey = getProcessedMatchKey(candidate, targetCurrency);
   const ownership = getOwnership(candidate, targetCurrency);
-  removeStaleRecords(primaryNode, inputVersion);
+  const beforeCleanup = processedMatches.get(primaryNode)?.get(processedMatchKey);
+  const staleRecordRemoved = removeStaleRecords(primaryNode, inputVersion);
   const exactRecord = processedMatches.get(primaryNode)?.get(processedMatchKey);
   const base = {
     processedMatchKey,
@@ -239,50 +305,101 @@ export function getDuplicateDecision(
     ownerPositionKey: ownership.ownerPositionKey,
   };
 
-  if (exactRecord?.badge.isConnected) {
+  const reconciliation = inspectRecord(
+    exactRecord ?? beforeCleanup,
+    candidate,
+    targetCurrency,
+    ownership.sourceFingerprint
+  );
+  reconciliation.staleRecordRemoved = staleRecordRemoved;
+
+  if (
+    exactRecord &&
+    reconciliation.badgeConnected &&
+    reconciliation.ownerConnected &&
+    reconciliation.ownerContainsBadge &&
+    reconciliation.sourceConnected &&
+    reconciliation.ownerMatchesSource &&
+    reconciliation.textVersionMatches &&
+    reconciliation.rangeMatches &&
+    reconciliation.fingerprintMatches
+  ) {
     return {
       ...base,
       duplicate: true,
       decision: "skip-exact-node-duplicate",
       reason: "Exact source node, text version, range, amount, currency, and target already owns a connected badge",
       badgeConnected: true,
+      existingBadge: exactRecord.badge,
+      reconciliation,
     };
   }
 
-  const scopeBadges = badgesInScope(ownership.scope);
-  const equivalent = scopeBadges.filter(
-    (badge) =>
-      badge.dataset.ehiniumSourceFingerprint === ownership.sourceFingerprint ||
-      (!badge.dataset.ehiniumSourceFingerprint &&
-        badge.getAttribute("data-ehinium-key") === legacyBadgeKey(candidate, targetCurrency))
-  );
+  if (exactRecord) {
+    markBadgeRemovalIntentional(exactRecord.badge);
+    exactRecord.badge.remove();
+    processedMatches.get(primaryNode)?.delete(processedMatchKey);
+    reconciliation.staleRecordRemoved = true;
+    reconciliationCounters.removedStaleBadgeCount++;
+  }
 
-  if (equivalent.length > 0) {
-    const badge = equivalent[0];
-    for (const duplicate of equivalent.slice(1)) {
+  const lineageBadges = findExistingLineageBadges(candidate, targetCurrency);
+  if (lineageBadges.length > 0) {
+    const badge = lineageBadges[0];
+    const previousOwner = badge.dataset.ehiniumOwnerId;
+    for (const duplicate of lineageBadges.slice(1)) {
+      markBadgeRemovalIntentional(duplicate);
       duplicate.remove();
       reconciliationCounters.removedStaleBadgeCount++;
     }
     applyOwnershipMetadata(badge, candidate, targetCurrency, base);
     badge.setAttribute("data-ehinium-source-match", processedMatchKey);
     const records = processedMatches.get(primaryNode) ?? new Map();
-    records.set(processedMatchKey, { inputVersion, badge });
+    records.set(processedMatchKey, {
+      inputVersion,
+      badge,
+      sourceNodes: [...candidate.sourceNodes],
+      inputNodes: [...new Set(candidate.fragmentMap.map((fragment) => fragment.node))],
+      anchor: candidate.renderingAnchor,
+      parserInput: candidate.parserInput,
+      start: candidate.match.start,
+      end: candidate.match.end,
+      sourceCurrency: candidate.match.currency,
+      amount: candidate.match.amount,
+      targetCurrency,
+    });
     processedMatches.set(primaryNode, records);
     reconciliationCounters.adoptedBadgeCount++;
     return {
       ...base,
       duplicate: true,
-      decision: "transfer-ownership-after-replacement",
-      reason: "An equivalent connected badge already owns this stable source fingerprint in the same local scope",
-      previousOwner: badge.dataset.ehiniumOwnerId,
-      badgeConnected: badge.isConnected,
+      decision: "adopt-existing-badge",
+      reason: "Existing badge owns same canonical text lineage",
+      previousOwner,
+      badgeConnected: true,
+      existingBadge: badge,
+      reconciliation: {
+        ...reconciliation,
+        ownerRecordFound: true,
+        badgeConnected: true,
+        ownerConnected: true,
+        ownerContainsBadge: true,
+        sourceConnected: true,
+        ownerMatchesSource: true,
+        textVersionMatches: true,
+        rangeMatches: true,
+        fingerprintMatches: true,
+        staleRecordRemoved: reconciliation.staleRecordRemoved || lineageBadges.length > 1,
+      },
     };
   }
 
+  const scopeBadges = badgesInScope(ownership.scope);
   const staleAtPosition = scopeBadges.filter(
     (badge) => badge.dataset.ehiniumOwnerPosition === ownership.ownerPositionKey
   );
   for (const staleBadge of staleAtPosition) {
+    markBadgeRemovalIntentional(staleBadge);
     staleBadge.remove();
     reconciliationCounters.removedStaleBadgeCount++;
   }
@@ -297,6 +414,10 @@ export function getDuplicateDecision(
       ? "A connected badge at this source position represented stale source text and was removed"
       : undefined,
     badgeConnected: false,
+    reconciliation: {
+      ...reconciliation,
+      staleRecordRemoved: reconciliation.staleRecordRemoved || staleAtPosition.length > 0,
+    },
   };
 }
 
@@ -304,15 +425,28 @@ export function recordProcessedMatch(
   candidate: CurrencyDomMatch,
   targetCurrency: string,
   badge: HTMLElement,
-  decision = getDuplicateDecision(candidate, targetCurrency)
+  decision = getDuplicateDecision(candidate, targetCurrency),
+  countAsNew = true
 ): string {
   const primaryNode = getPrimaryNode(candidate);
   const inputVersion = hashText(candidate.parserInput);
   const key = getProcessedMatchKey(candidate, targetCurrency);
   const records = processedMatches.get(primaryNode) ?? new Map();
-  records.set(key, { inputVersion, badge });
+  records.set(key, {
+    inputVersion,
+    badge,
+    sourceNodes: [...candidate.sourceNodes],
+    inputNodes: [...new Set(candidate.fragmentMap.map((fragment) => fragment.node))],
+    anchor: candidate.renderingAnchor,
+    parserInput: candidate.parserInput,
+    start: candidate.match.start,
+    end: candidate.match.end,
+    sourceCurrency: candidate.match.currency,
+    amount: candidate.match.amount,
+    targetCurrency,
+  });
   processedMatches.set(primaryNode, records);
-  reconciliationCounters.newlyRenderedBadgeCount++;
+  if (countAsNew) reconciliationCounters.newlyRenderedBadgeCount++;
   badge.setAttribute("data-ehinium-source-match", key);
   applyOwnershipMetadata(badge, candidate, targetCurrency, decision);
   return key;
@@ -341,6 +475,7 @@ export function releaseProcessedSourceTree(root: Node): void {
       continue;
     }
     for (const record of records.values()) {
+      markBadgeRemovalIntentional(record.badge);
       record.badge.remove();
     }
     processedMatches.delete(node);

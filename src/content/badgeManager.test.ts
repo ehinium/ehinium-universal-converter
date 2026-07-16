@@ -1,6 +1,7 @@
 import { Window } from "happy-dom";
 import {
   createBadge,
+  getBadgeVisibleText,
   getBadgeColorContext,
   insertBadgeAfter,
   insertBadgeAfterTextNode,
@@ -89,7 +90,7 @@ expectEqual(
   await Promise.resolve();
 
   expectEqual(copiedText, "$4.70", "copied badge value");
-  expectEqual(badge.textContent, "Copied", "temporary copied feedback");
+  expectEqual(getBadgeVisibleText(badge), "Copied", "temporary copied feedback");
   expectEqual(badge.hasAttribute("title"), false, "badge native title tooltip");
   expectEqual(badge.getAttribute("role"), "button", "badge role button");
   expectEqual(badge.getAttribute("tabindex"), "0", "badge tabindex");
@@ -109,7 +110,7 @@ expectEqual(
 
   await wait(950);
 
-  expectEqual(badge.textContent, "$4.70", "restored badge value");
+  expectEqual(getBadgeVisibleText(badge), "$4.70", "restored badge value");
   expectEqual(
     badge.getAttribute("aria-label"),
     "Convert AED 16.99 to $4.70. Click to copy.",
@@ -206,7 +207,7 @@ expectEqual(
   await Promise.resolve();
   await Promise.resolve();
 
-  expectEqual(badge.textContent, "22 lb", "failed copy badge value");
+  expectEqual(getBadgeVisibleText(badge), "22 lb", "failed copy badge value");
 }
 
 {
@@ -266,12 +267,12 @@ expectEqual(
   insertBadgeAfter(source, badge);
 
   expectEqual(
-    badge.style.color,
+    badge.style.getPropertyValue("--euc-badge-color"),
     "rgb(20, 20, 20)",
     "light container badge text color"
   );
   expectEqual(
-    badge.style.background,
+    badge.style.getPropertyValue("--euc-badge-background"),
     "rgba(20, 20, 20, 0.07)",
     "light container badge background color"
   );
@@ -284,12 +285,12 @@ expectEqual(
   insertBadgeAfter(source, badge);
 
   expectEqual(
-    badge.style.color,
+    badge.style.getPropertyValue("--euc-badge-color"),
     "rgb(255, 255, 255)",
     "dark container badge text color"
   );
   expectEqual(
-    badge.style.background,
+    badge.style.getPropertyValue("--euc-badge-background"),
     "rgba(255, 255, 255, 0.07)",
     "dark container badge background color"
   );
@@ -313,13 +314,13 @@ expectEqual(
   insertBadgeAfter(source, badge);
 
   expectEqual(
-    badge.style.color,
-    "rgb(17, 24, 39)",
+    badge.style.getPropertyValue("--euc-badge-color"),
+    "",
     "different background fallback badge text color"
   );
   expectEqual(
-    badge.style.background,
-    "rgba(17, 24, 39, 0.08)",
+    badge.style.getPropertyValue("--euc-badge-background"),
+    "",
     "different background fallback badge background"
   );
 }
@@ -339,12 +340,12 @@ expectEqual(
   insertBadgeAfterTextNode(source, badge);
 
   expectEqual(
-    badge.style.color,
+    badge.style.getPropertyValue("--euc-badge-color"),
     "rgb(20, 20, 20)",
     "transparent nested compact badge text color"
   );
   expectEqual(
-    badge.style.background,
+    badge.style.getPropertyValue("--euc-badge-background"),
     "rgba(20, 20, 20, 0.07)",
     "transparent nested compact badge background"
   );
@@ -379,12 +380,12 @@ expectEqual(
   insertBadgeAfter(source, badge);
 
   expectEqual(
-    badge.style.color,
+    badge.style.getPropertyValue("--euc-badge-color"),
     "rgba(255, 255, 255, 0.6)",
     "semi-transparent badge text color"
   );
   expectEqual(
-    badge.style.background,
+    badge.style.getPropertyValue("--euc-badge-background"),
     "rgba(255, 255, 255, 0.07)",
     "semi-transparent badge background"
   );
@@ -400,9 +401,9 @@ expectEqual(
   insertBadgeAfter(source, badge);
 
   expectEqual(
-    badge.style.color,
+    badge.style.getPropertyValue("--euc-badge-color"),
     "rgba(20, 20, 20, 0.5)",
     "minimal badge derived translucent text color"
   );
-  expectEqual(badge.style.background, "transparent", "minimal badge background");
+  expectEqual(badge.style.getPropertyValue("--euc-badge-background"), "", "minimal badge uses shadow background");
 }

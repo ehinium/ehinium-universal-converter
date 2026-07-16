@@ -8,6 +8,8 @@ const EXCLUDED_TEXT_NODE_SELECTORS = [
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
+  '[data-euc-owned="true"]',
+  '[data-euc-badge="true"]',
   "[data-ehinium-tooltip]",
 ];
 
@@ -48,7 +50,7 @@ export function getTextNodeScanExclusion(node: Text): TextNodeScanExclusion | nu
         reason: `Matched scanner exclusion selector ${selector} on <${excludedAncestor.tagName.toLowerCase()}>`,
         rule: selector,
         element: excludedAncestor,
-        category: /ehinium/iu.test(selector) ? "extension-ui" : "source-content",
+        category: /(?:ehinium|data-euc)/iu.test(selector) ? "extension-ui" : "source-content",
       };
     }
   }

@@ -1,0 +1,7 @@
+{
+  "urls": [
+    "fixture:static-prices",
+    "fixture:large-page",
+    "fixture:mutation-heavy-spa"
+  ]
+}

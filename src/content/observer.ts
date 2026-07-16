@@ -3,12 +3,18 @@ import { isHiddenOrDisconnectedRoot } from "./domScanner";
 import { isProcessed } from "./processedNodes";
 import { releaseProcessedSourceTree } from "./currencyMatchState";
 import type { MutationBatchDiagnostic } from "../types/diagnostics";
+import { handleBadgeLifecycleMutations } from "./badgeLifecycle";
+import { handleBadgeHostMutations } from "./badgeHost";
+import { reconcileAffectedBadgeHosts } from "./badgeHostRegistry";
+import { recordMutationBatch } from "./perfDiagnostics";
 
 const EUC_OWNED_SELECTOR = [
   '[data-ehinium-badge="true"]',
   "[data-ehinium-tooltip]",
   "[data-ehinium-converted]",
   '[data-ehinium-ignore="true"]',
+  '[data-euc-owned="true"]',
+  '[data-euc-badge="true"]',
 ].join(", ");
 
 let stopActiveObserver: (() => void) | null = null;
@@ -82,6 +88,7 @@ function isEucOwnedNode(node: Node): boolean {
 }
 
 export function isExtensionOwnedMutation(mutation: MutationRecord): boolean {
+  if (isEucOwnedNode(mutation.target)) return true;
   const affected = [
     ...mutation.addedNodes,
     ...mutation.removedNodes,
@@ -143,7 +150,10 @@ function collectMutationRoots(mutations: readonly MutationRecord[]): Node[] {
   for (const mutation of mutations) {
     const root = getMutationRoot(mutation);
 
-    if (root && !roots.includes(root)) {
+    if (root && !roots.some((existing) => existing === root || existing.contains(root))) {
+      for (let index = roots.length - 1; index >= 0; index--) {
+        if (root.contains(roots[index])) roots.splice(index, 1);
+      }
       roots.push(root);
     }
   }
@@ -157,11 +167,20 @@ export function observeDomChanges(callback: (roots: Node[]) => void): () => void
   let stopped = false;
 
   const observer = new MutationObserver((mutations) => {
+    const perfDiagnosticsEnabled = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
+    const perfStartedAt = perfDiagnosticsEnabled ? performance.now() : 0;
     if (stopped) {
       return;
     }
 
+    handleBadgeHostMutations(mutations);
+    handleBadgeLifecycleMutations(mutations);
+    reconcileAffectedBadgeHosts(mutations);
     const roots = collectMutationRoots(mutations);
+
+    if (perfDiagnosticsEnabled) {
+      recordMutationBatch(mutations, roots, performance.now() - perfStartedAt);
+    }
 
     if (diagnosticsEnabled()) {
       const category = classifyMutationBatch(mutations);
@@ -194,7 +213,9 @@ export function observeDomChanges(callback: (roots: Node[]) => void): () => void
         finalActiveBadgeCount: category === "extension-ui"
           ? existingBadges.length
           : undefined,
-        warnings: [],
+        warnings: category === "extension-ui"
+          ? ["Extension-owned mutation ignored"]
+          : [],
       });
       if (mutationDiagnostics.length > MAX_MUTATION_DIAGNOSTICS) {
         mutationDiagnostics.splice(0, mutationDiagnostics.length - MAX_MUTATION_DIAGNOSTICS);

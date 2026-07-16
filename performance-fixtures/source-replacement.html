@@ -1,0 +1,1 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Repeated source replacement</title></head><body><main id="root"><div id="price">$19.99</div></main><script>let n=0;const timer=setInterval(()=>{price.replaceWith(Object.assign(document.createElement('div'),{id:'price',textContent:`$${20+n++}.99`}));if(n===20)clearInterval(timer)},100)</script></body></html>

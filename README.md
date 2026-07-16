@@ -51,3 +51,5 @@ license terms. You may not remove, disable, or circumvent the software's
 license-key functionality or protected premium-feature controls.
 
 This project is source-available and is not OSI-approved open-source software.
+
+Development-only browser performance comparison and extension instrumentation are documented in [docs/performance-audit.md](docs/performance-audit.md).

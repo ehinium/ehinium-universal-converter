@@ -10,7 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-perf
+performance-audits
 release
+store-assets
 *.zip
 *.local
 
