@@ -61,6 +61,28 @@ expectEqual(usdStatus.fetchedAt, now - 1_000, "cached timestamp hydrates");
 expectEqual(await getExchangeRates("USD"), usdResponse, "fresh cache serves conversion data");
 expectEqual(networkRequests, 0, "fresh hydration does not trigger a network request");
 
+const iranianContaminatedResponse: NormalizedRatesResponse = {
+  base: "CAD",
+  date: "2026-07-16",
+  rates: { CAD: 1, USD: 0.73, IRT: 140000, IRR: 1400000 },
+  provider: "frankfurter+fawaz",
+};
+stored.set(
+  "euc-rate-cache-v1:CAD",
+  cacheEntry(iranianContaminatedResponse, now - 500, now + 60_000)
+);
+const sanitizedCadStatus = await getCachedExchangeRateStatus("CAD");
+expectEqual(sanitizedCadStatus.response?.rates.CAD, 1, "sanitized cache preserves base rate");
+expectEqual(sanitizedCadStatus.response?.rates.USD, 0.73, "sanitized cache preserves global rate");
+expectEqual(sanitizedCadStatus.response?.rates.IRT, undefined, "persisted IRT is not exposed");
+expectEqual(sanitizedCadStatus.response?.rates.IRR, undefined, "persisted IRR is not exposed");
+expectEqual(
+  await getExchangeRates("CAD"),
+  sanitizedCadStatus.response,
+  "sanitized fresh global cache remains usable"
+);
+expectEqual(networkRequests, 0, "sanitized fresh cache avoids network requests");
+
 const newerUsdResponse: NormalizedRatesResponse = {
   ...usdResponse,
   date: "2026-07-17",

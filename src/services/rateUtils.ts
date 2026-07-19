@@ -1,12 +1,22 @@
-import { fiatCurrencies } from "../data/currencies";
+import {
+  globalProviderFiatCurrencies,
+  iranianBridgeCurrencyCodes,
+} from "../data/currencies";
 import type { ExchangeRates } from "../types/rates";
 
 const fiatCurrencyCodes = new Set(
-  fiatCurrencies.map((currency) => currency.code)
+  globalProviderFiatCurrencies.map((currency) => currency.code)
+);
+const iranianBridgeCurrencyCodeSet = new Set<string>(
+  iranianBridgeCurrencyCodes
 );
 
 export function normalizeBaseCurrency(baseCurrency: string): string {
   const normalized = baseCurrency.trim().toUpperCase();
+
+  if (iranianBridgeCurrencyCodeSet.has(normalized)) {
+    throw new Error("Iranian currencies require the Iranian conversion bridge");
+  }
 
   if (!fiatCurrencyCodes.has(normalized)) {
     throw new Error(`Unsupported fiat base currency: "${baseCurrency}"`);

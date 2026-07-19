@@ -8,3 +8,24 @@ export type NormalizedRatesResponse = {
   rates: ExchangeRates;
   provider: RateProviderName;
 };
+
+export type IranianBridgeRate = {
+  unit: "IRT";
+  usdSellIrt: number;
+  updatedAt: string;
+  sourceUpdatedAt: string | null;
+  provider: "ehinium";
+};
+
+export type EhiniumIranianRatesApiResponse = {
+  version: number;
+  unit: "IRT";
+  updatedAt: string;
+  sourceUpdatedAt: string | null;
+  rates: {
+    USD: {
+      buy: number;
+      sell: number;
+    };
+  };
+};

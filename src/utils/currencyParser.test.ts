@@ -86,6 +86,95 @@ expectCurrencies("eur 80", [{ amount: 80, currency: "EUR" }]);
 expectCurrencies("usd 100", [{ amount: 100, currency: "USD" }]);
 expectCurrencies("100 aed", [{ amount: 100, currency: "AED" }]);
 expectCurrencies("10000000IRR", [{ amount: 10000000, currency: "IRR" }]);
+
+for (const [identifier, currency, amount] of [
+  ["IRT", "IRT", 1000],
+  ["TMN", "IRT", 1000],
+  ["Toman", "IRT", 1000],
+  ["Tomans", "IRT", 1000],
+  ["تومان", "IRT", 1000],
+  ["تومن", "IRT", 1000],
+  ["IRR", "IRR", 10000],
+  ["Rial", "IRR", 10000],
+  ["Rials", "IRR", 10000],
+  ["ریال", "IRR", 10000],
+] as const) {
+  expectSingleCurrencyMatch(`${identifier} ${amount}`, { amount, currency });
+  expectSingleCurrencyMatch(`${amount} ${identifier}`, { amount, currency });
+}
+
+for (const [identifier, currency] of [
+  ["toman", "IRT"],
+  ["TOMAN", "IRT"],
+  ["tomans", "IRT"],
+  ["tmn", "IRT"],
+  ["rial", "IRR"],
+  ["RIALS", "IRR"],
+] as const) {
+  expectSingleCurrencyMatch(`${identifier} 1000`, {
+    amount: 1000,
+    currency,
+  });
+  expectSingleCurrencyMatch(`1000 ${identifier}`, {
+    amount: 1000,
+    currency,
+  });
+}
+
+expectSingleCurrencyMatch("تومان ۱۰۰۰", { amount: 1000, currency: "IRT" });
+expectSingleCurrencyMatch("۱۰۰۰ تومان", { amount: 1000, currency: "IRT" });
+expectSingleCurrencyMatch("ریال ١٠٠٠٠", { amount: 10000, currency: "IRR" });
+expectSingleCurrencyMatch("١٠٠٠٠ ریال", { amount: 10000, currency: "IRR" });
+
+for (const identifier of ["تومان", "تومن"] as const) {
+  for (const decoration of ["ء", "ءء", "ءءء", "ءءءءء"] as const) {
+    const decorated = `${identifier}${decoration}`;
+    expectSingleCurrencyMatch(`${decorated} ۱۰۰۰`, {
+      amount: 1000,
+      currency: "IRT",
+    });
+    expectSingleCurrencyMatch(`۱۰۰۰ ${decorated}`, {
+      amount: 1000,
+      currency: "IRT",
+    });
+  }
+}
+
+for (const decoration of ["ء", "ءء", "ءءء", "ءءءءء"] as const) {
+  const decorated = `ریال${decoration}`;
+  expectSingleCurrencyMatch(`${decorated} ۱۰۰۰۰`, {
+    amount: 10000,
+    currency: "IRR",
+  });
+  expectSingleCurrencyMatch(`۱۰۰۰۰ ${decorated}`, {
+    amount: 10000,
+    currency: "IRR",
+  });
+}
+
+for (const falsePositive of [
+  "تومان ء ۱۰۰۰",
+  "۱۰۰۰ تومان ء",
+  "ATMAN 1000",
+  "TOMANIC 1000",
+  "XIRT 1000",
+  "IRRX 10000",
+  "تومانک ۱۰۰۰",
+  "پیشتومان ۱۰۰۰",
+  "ریالی ۱۰۰۰۰",
+  "اریال ۱۰۰۰۰",
+  "TMN123",
+  "123TMN",
+  "T 1000",
+  "ت ۱۰۰۰",
+  "توم ۱۰۰۰",
+  "ری ۱۰۰۰۰",
+  "مسئولء ۱۰۰۰",
+  "شیء ۱۰۰۰",
+]) {
+  expectCurrencies(falsePositive, []);
+}
+
 for (const text of [".99 USD", "USD .99", "$.99", ".99USD"]) {
   expectSingleCurrencyMatch(text, { amount: 0.99, currency: "USD" });
 }

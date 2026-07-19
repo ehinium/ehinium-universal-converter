@@ -1,5 +1,5 @@
 import type { NormalizedRatesResponse } from "../types/rates";
-import { fiatCurrencies } from "../data/currencies";
+import { globalProviderFiatCurrencies } from "../data/currencies";
 import { getFawazRates } from "./fawaz";
 import { getFrankfurterRates } from "./frankfurter";
 import { getErrorMessage, hasRates, normalizeBaseCurrency } from "./rateUtils";
@@ -21,6 +21,9 @@ export type ExchangeRateStatus = {
 
 const ratesCache = new Map<string, CachedRates>();
 const rateErrors = new Map<string, number>();
+const globalProviderFiatCurrencyCodes = new Set(
+  globalProviderFiatCurrencies.map((currency) => currency.code)
+);
 
 function getRateCacheStorageKey(base: string): string {
   return `${RATE_CACHE_STORAGE_PREFIX}${base}`;
@@ -36,8 +39,8 @@ function isRateProvider(value: unknown): value is NormalizedRatesResponse["provi
   return value === "frankfurter" || value === "fawaz" || value === "frankfurter+fawaz";
 }
 
-function isValidCachedRates(value: unknown, base: string): value is CachedRates {
-  if (typeof value !== "object" || value === null) return false;
+function getValidCachedRates(value: unknown, base: string): CachedRates | null {
+  if (typeof value !== "object" || value === null) return null;
 
   const cached = value as Partial<CachedRates>;
   const response = cached.response;
@@ -54,17 +57,27 @@ function isValidCachedRates(value: unknown, base: string): value is CachedRates 
     typeof response.rates !== "object" ||
     response.rates === null
   ) {
-    return false;
+    return null;
   }
 
   const rates = Object.fromEntries(
     Object.entries(response.rates).filter(
       (entry): entry is [string, number] =>
+        globalProviderFiatCurrencyCodes.has(entry[0]) &&
         typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
     )
   );
 
-  return rates[base] === 1 && hasRates(rates);
+  if (rates[base] !== 1 || !hasRates(rates)) return null;
+
+  return {
+    response: {
+      ...response,
+      rates,
+    },
+    fetchedAt: cached.fetchedAt,
+    expiresAt: cached.expiresAt,
+  };
 }
 
 async function hydrateRateCache(
@@ -80,8 +93,8 @@ async function hydrateRateCache(
   try {
     const key = getRateCacheStorageKey(base);
     const stored = await storage.get(key);
-    const cached = stored[key];
-    if (!isValidCachedRates(cached, base)) return inMemory ?? null;
+    const cached = getValidCachedRates(stored[key], base);
+    if (!cached) return inMemory ?? null;
     if (!inMemory || cached.fetchedAt >= inMemory.fetchedAt) {
       ratesCache.set(base, cached);
       return cached;
@@ -104,7 +117,9 @@ async function persistRateCache(base: string, cached: CachedRates): Promise<void
 }
 
 function hasEveryCanonicalFiatRate(response: NormalizedRatesResponse): boolean {
-  return fiatCurrencies.every((currency) => response.rates[currency.code] !== undefined);
+  return globalProviderFiatCurrencies.every(
+    (currency) => response.rates[currency.code] !== undefined
+  );
 }
 
 export function mergeRateResponses(
