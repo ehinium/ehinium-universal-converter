@@ -1,10 +1,73 @@
-import { fiatCurrencies } from "../data/currencies";
+import {
+  fiatCurrencies,
+  globalProviderFiatCurrencies,
+  iranianBridgeCurrencyCodes,
+} from "../data/currencies";
 import { parseCurrencies } from "../utils/currencyParser";
 import { generateCurrencyTestMatrix } from "./testMatrix";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const canonicalCodes = fiatCurrencies.map((currency) => currency.code);
+const globalProviderCodes = globalProviderFiatCurrencies.map(
+  (currency) => currency.code
+);
+const iranianBridgeCodeSet = new Set<string>(iranianBridgeCurrencyCodes);
+const tomanDefinitions = fiatCurrencies.filter(
+  (currency) => currency.code === "IRT"
+);
+const rialDefinitions = fiatCurrencies.filter(
+  (currency) => currency.code === "IRR"
+);
+const ambiguousIranianAliases = ["T", "ت", "توم", "ری"];
+
+assert(
+  new Set(canonicalCodes).size === canonicalCodes.length,
+  "Canonical fiat currency codes must be unique"
+);
+assert(
+  new Set(globalProviderCodes).size === globalProviderCodes.length,
+  "Global provider fiat currency codes must be unique"
+);
+assert(tomanDefinitions.length === 1, "IRT must exist exactly once");
+assert(rialDefinitions.length === 1, "IRR must exist exactly once");
+assert(
+  JSON.stringify(tomanDefinitions[0].symbols) ===
+    JSON.stringify(["IRT", "TMN", "Toman", "Tomans", "تومان", "تومن"]),
+  "IRT must contain exactly the approved identifiers"
+);
+assert(
+  ["IRR", "Rial", "Rials", "ریال"].every((identifier) =>
+    rialDefinitions[0].symbols.includes(identifier)
+  ),
+  "IRR must contain all approved Rial identifiers"
+);
+assert(
+  ambiguousIranianAliases.every(
+    (identifier) =>
+      !tomanDefinitions[0].symbols.includes(identifier) &&
+      !rialDefinitions[0].symbols.includes(identifier)
+  ),
+  "Iranian currencies must not include ambiguous short aliases"
+);
+assert(
+  !globalProviderCodes.includes("IRT") && !globalProviderCodes.includes("IRR"),
+  "Iranian bridge currencies must be excluded from global provider currencies"
+);
+assert(
+  fiatCurrencies.every(
+    (currency) =>
+      iranianBridgeCodeSet.has(currency.code) ||
+      globalProviderCodes.includes(currency.code)
+  ),
+  "Every non-Iranian canonical fiat currency must remain globally provided"
+);
+assert(
+  globalProviderCodes.includes("USD") && globalProviderCodes.includes("EUR"),
+  "Existing global currencies must remain globally provided"
+);
 
 const matrix = generateCurrencyTestMatrix();
 const ids = new Set(matrix.map((testCase) => testCase.id));

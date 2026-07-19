@@ -82,7 +82,8 @@ export const fiatCurrencies: CurrencyDefinition[] = [
   { code: "ILS", name: "Israeli New Shekel", symbols: ["ILS", "₪"], decimalDigits: 2, localeExamples: ["he-IL", "ar-IL"] },
   { code: "INR", name: "Indian Rupee", symbols: ["INR", "₹", "Rs"], decimalDigits: 2, localeExamples: ["en-IN", "hi-IN"] },
   { code: "IQD", name: "Iraqi Dinar", symbols: ["IQD", "ع.د"], decimalDigits: 3, localeExamples: ["ar-IQ"] },
-  { code: "IRR", name: "Iranian Rial", symbols: ["IRR", "﷼", "ریال"], decimalDigits: 2, localeExamples: ["fa-IR"] },
+  { code: "IRR", name: "Iranian Rial", symbols: ["IRR", "﷼", "Rial", "Rials", "ریال"], decimalDigits: 2, localeExamples: ["fa-IR"] },
+  { code: "IRT", name: "Iranian Toman", symbols: ["IRT", "TMN", "Toman", "Tomans", "تومان", "تومن"], decimalDigits: 0, localeExamples: ["fa-IR"] },
   { code: "ISK", name: "Icelandic Króna", symbols: ["ISK", "kr"], decimalDigits: 0, localeExamples: ["is-IS"] },
   { code: "JMD", name: "Jamaican Dollar", symbols: ["JMD", "$", "J$"], decimalDigits: 2, localeExamples: ["en-JM"] },
   { code: "JOD", name: "Jordanian Dinar", symbols: ["JOD", "د.ا", "JD"], decimalDigits: 3, localeExamples: ["ar-JO", "en-JO"] },
@@ -182,3 +183,17 @@ export const fiatCurrencies: CurrencyDefinition[] = [
   // Despite its name, Zimbabwe Gold is active fiat legal tender, not a precious-metal code.
   { code: "ZWG", name: "Zimbabwe Gold", symbols: ["ZWG", "ZiG"], decimalDigits: 2, localeExamples: ["en-ZW"] },
 ];
+
+export const iranianBridgeCurrencyCodes = ["IRT", "IRR"] as const;
+
+export type IranianBridgeCurrencyCode =
+  (typeof iranianBridgeCurrencyCodes)[number];
+
+const iranianBridgeCurrencyCodeSet: ReadonlySet<string> = new Set(
+  iranianBridgeCurrencyCodes
+);
+
+export const globalProviderFiatCurrencies: CurrencyDefinition[] =
+  fiatCurrencies.filter(
+    (currency) => !iranianBridgeCurrencyCodeSet.has(currency.code)
+  );
