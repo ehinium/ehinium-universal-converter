@@ -208,7 +208,7 @@ const storageListeners = new Set<(changes: Record<string, { newValue?: unknown }
 
 const chromeStub = {
   runtime: {
-    getManifest: () => ({ version: "0.2.0" }),
+    getManifest: () => ({ version: "0.2.1" }),
     openOptionsPage: async () => undefined,
   },
   storage: {
@@ -609,7 +609,7 @@ try {
   );
 
   await openSection("About");
-  expect(aboutSection.textContent?.includes("0.2.0"), "About should expose manifest version");
+  expect(aboutSection.textContent?.includes("0.2.1"), "About should expose manifest version");
   expect(aboutSection.textContent?.includes("Frankfurter with Fawaz fallback"), "About should expose existing providers");
   expect(aboutSection.textContent?.includes("Ehsan Rabipour"), "About should identify the creator");
   const creatorName = Array.from(aboutSection.querySelectorAll("p")).find(

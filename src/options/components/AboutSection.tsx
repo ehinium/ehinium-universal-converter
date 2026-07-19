@@ -51,7 +51,7 @@ function getExtensionVersion(): string {
   try {
     return chrome.runtime.getManifest().version;
   } catch {
-    return "0.2.0";
+    return "0.2.1";
   }
 }
 
