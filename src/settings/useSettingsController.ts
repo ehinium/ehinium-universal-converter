@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fiatCurrencies } from "../data/currencies";
+import { selectableTargetCurrencies } from "../data/currencies";
 import { isDomainAllowed } from "../services/domainRules";
 import {
   getExchangeRates,
@@ -12,6 +12,10 @@ import {
   getManualConversion,
   type ManualConversionResult,
 } from "../services/selectedTextConverter";
+import {
+  IranianBridgeClientError,
+  requestIranianBridgeRateDetails,
+} from "../services/iranianBridgeClient";
 import { getSettings, saveSettings } from "../services/settings";
 import {
   formatSettingsApplyStatus,
@@ -19,11 +23,18 @@ import {
 } from "../services/settingsApply";
 import { getActiveTabHostname, setSiteAllowed } from "../services/siteControls";
 import type { UserSettings } from "../types/settings";
+import { parseCurrencies } from "../utils/currencyParser";
 import {
   copyManualConversion,
   formatManualConversionInput,
 } from "../popup/manualConversion";
-import { refreshRateStatus } from "../popup/rateStatus";
+import {
+  getIranianBridgeStatus,
+  notRequiredIranianBridgeStatus,
+  refreshRateStatus,
+  type CombinedRateStatus,
+  type IranianBridgeStatus,
+} from "../popup/rateStatus";
 import { getManualFeedback, type ManualFeedback } from "./manualFeedback";
 
 const MANUAL_CONVERSION_DEBOUNCE_MS = 250;
@@ -43,6 +54,7 @@ export type SettingsControllerDependencies = {
   getExchangeRateStatus: typeof getExchangeRateStatus;
   refreshExchangeRates: typeof refreshExchangeRates;
   refreshRateStatus: typeof refreshRateStatus;
+  requestIranianBridgeRateDetails: typeof requestIranianBridgeRateDetails;
   getManualConversion: typeof getManualConversion;
   copyManualConversion: typeof copyManualConversion;
   formatManualConversionInput: typeof formatManualConversionInput;
@@ -61,15 +73,39 @@ const defaultDependencies: SettingsControllerDependencies = {
   getExchangeRateStatus,
   refreshExchangeRates,
   refreshRateStatus,
+  requestIranianBridgeRateDetails,
   getManualConversion,
   copyManualConversion,
   formatManualConversionInput,
   openOptionsPage: () => chrome.runtime.openOptionsPage(),
 };
 
-const sortedCurrencies = [...fiatCurrencies].sort((left, right) =>
+const sortedCurrencies = [...selectableTargetCurrencies].sort((left, right) =>
   left.code.localeCompare(right.code)
 );
+
+function getGlobalStatusBase(targetCurrency: string): string {
+  return targetCurrency === "IRT" ? "USD" : targetCurrency;
+}
+
+function iranianStatusIsRequired(
+  targetCurrency: string | undefined,
+  manualInput: string
+): boolean {
+  if (targetCurrency === "IRT") return true;
+  const source = parseCurrencies(manualInput)[0]?.currency;
+  return source === "IRT" || source === "IRR";
+}
+
+function getIranianStatusError(error: unknown): IranianBridgeStatus {
+  return {
+    state:
+      error instanceof IranianBridgeClientError &&
+      error.code === "misconfigured"
+        ? "misconfigured"
+        : "unavailable",
+  };
+}
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -106,7 +142,7 @@ export type SettingsController = {
   isManualConverting: boolean;
   copyLabel: string;
   manualInputRef: React.RefObject<HTMLInputElement | null>;
-  rateStatus: ExchangeRateStatus;
+  rateStatus: CombinedRateStatus;
   isRefreshingRates: boolean;
   showReloadNotice: boolean;
   settingsApplyStatus: string;
@@ -148,6 +184,8 @@ export function useSettingsController(
     fetchedAt: null,
     lastErrorAt: null,
   });
+  const [iranianBridgeStatus, setIranianBridgeStatus] =
+    useState<IranianBridgeStatus>(notRequiredIranianBridgeStatus);
   const [isRefreshingRates, setIsRefreshingRates] = useState(false);
   const [showReloadNotice, setShowReloadNotice] = useState(false);
   const settingsRef = useRef<UserSettings | null>(null);
@@ -155,6 +193,7 @@ export function useSettingsController(
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveVersionRef = useRef(0);
   const rateRefreshIdRef = useRef(0);
+  const iranianStatusRequestIdRef = useRef(0);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -181,11 +220,12 @@ export function useSettingsController(
         setWhitelistDraft(loadedSettings.whitelist.join("\n"));
         setBlacklistDraft(loadedSettings.blacklist.join("\n"));
 
+        const statusBase = getGlobalStatusBase(loadedSettings.targetCurrency);
         const statusRequestId = rateRefreshIdRef.current + 1;
         rateRefreshIdRef.current = statusRequestId;
         const hydratedStatus = await dependencies
-          .getCachedExchangeRateStatus(loadedSettings.targetCurrency)
-          .catch(() => dependencies.getExchangeRateStatus(loadedSettings.targetCurrency));
+          .getCachedExchangeRateStatus(statusBase)
+          .catch(() => dependencies.getExchangeRateStatus(statusBase));
         if (
           !cancelled &&
           mountedRef.current &&
@@ -212,6 +252,39 @@ export function useSettingsController(
   }, [dependencies, surface]);
 
   useEffect(() => {
+    const required = iranianStatusIsRequired(
+      settings?.targetCurrency,
+      manualInput
+    );
+    const requestId = iranianStatusRequestIdRef.current + 1;
+    iranianStatusRequestIdRef.current = requestId;
+
+    if (!required) {
+      setIranianBridgeStatus(notRequiredIranianBridgeStatus);
+      return;
+    }
+
+    let cancelled = false;
+    setIranianBridgeStatus({ state: "loading" });
+    void dependencies
+      .requestIranianBridgeRateDetails()
+      .then((result) => {
+        if (!cancelled && iranianStatusRequestIdRef.current === requestId) {
+          setIranianBridgeStatus(getIranianBridgeStatus(result));
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (!cancelled && iranianStatusRequestIdRef.current === requestId) {
+          setIranianBridgeStatus(getIranianStatusError(requestError));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dependencies, manualInput, settings?.targetCurrency]);
+
+  useEffect(() => {
     let cancelled = false;
     const value = manualInput.trim();
 
@@ -228,6 +301,17 @@ export function useSettingsController(
               return (
                 await dependencies.getExchangeRates(baseCurrency)
               ).rates;
+            } finally {
+              if (!cancelled) {
+                setRateStatus(
+                  dependencies.getExchangeRateStatus(baseCurrency)
+                );
+              }
+            }
+          },
+          async getGlobalRates(baseCurrency) {
+            try {
+              return await dependencies.getExchangeRates(baseCurrency);
             } finally {
               if (!cancelled) {
                 setRateStatus(
@@ -329,11 +413,12 @@ export function useSettingsController(
     const statusRequestId = rateRefreshIdRef.current + 1;
     rateRefreshIdRef.current = statusRequestId;
     setIsRefreshingRates(false);
-    setRateStatus(dependencies.getExchangeRateStatus(targetCurrency));
+    const statusBase = getGlobalStatusBase(targetCurrency);
+    setRateStatus(dependencies.getExchangeRateStatus(statusBase));
     updateSettings({ ...currentSettings, targetCurrency });
 
     void dependencies
-      .getCachedExchangeRateStatus(targetCurrency)
+      .getCachedExchangeRateStatus(statusBase)
       .then((hydratedStatus) => {
         if (
           mountedRef.current &&
@@ -431,12 +516,38 @@ export function useSettingsController(
       return;
     }
 
+    const statusBase = getGlobalStatusBase(baseCurrency);
     const refreshId = rateRefreshIdRef.current + 1;
     rateRefreshIdRef.current = refreshId;
     setIsRefreshingRates(true);
 
-    void dependencies
-      .refreshRateStatus(baseCurrency, dependencies.refreshExchangeRates)
+    const refreshIranian = iranianStatusIsRequired(baseCurrency, manualInput);
+    const iranianRequestId = iranianStatusRequestIdRef.current + 1;
+    if (refreshIranian) {
+      iranianStatusRequestIdRef.current = iranianRequestId;
+      setIranianBridgeStatus({ state: "loading" });
+    }
+
+    const globalRefresh = dependencies.refreshRateStatus(
+      statusBase,
+      dependencies.refreshExchangeRates
+    );
+    const iranianRefresh = refreshIranian
+      ? dependencies
+          .requestIranianBridgeRateDetails({ forceRefresh: true })
+          .then((result) => {
+            if (iranianStatusRequestIdRef.current === iranianRequestId) {
+              setIranianBridgeStatus(getIranianBridgeStatus(result));
+            }
+          })
+          .catch((requestError: unknown) => {
+            if (iranianStatusRequestIdRef.current === iranianRequestId) {
+              setIranianBridgeStatus(getIranianStatusError(requestError));
+            }
+          })
+      : Promise.resolve();
+
+    void Promise.allSettled([globalRefresh, iranianRefresh])
       .catch(() => undefined)
       .finally(() => {
         if (
@@ -447,7 +558,7 @@ export function useSettingsController(
         }
 
         if (settingsRef.current?.targetCurrency === baseCurrency) {
-          setRateStatus(dependencies.getExchangeRateStatus(baseCurrency));
+          setRateStatus(dependencies.getExchangeRateStatus(statusBase));
         }
         setIsRefreshingRates(false);
       });
@@ -492,7 +603,7 @@ export function useSettingsController(
     isManualConverting,
     copyLabel,
     manualInputRef,
-    rateStatus,
+    rateStatus: { ...rateStatus, iranianBridgeStatus },
     isRefreshingRates,
     showReloadNotice,
     settingsApplyStatus,

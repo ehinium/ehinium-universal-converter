@@ -1,11 +1,14 @@
 import { RefreshCw } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import type { ExchangeRateStatus } from "../../services/rates";
 import { cn } from "../../lib/utils";
-import { formatRateStatus } from "../../popup/rateStatus";
+import {
+  formatIranianBridgeStatus,
+  formatRateStatus,
+  type CombinedRateStatus,
+} from "../../popup/rateStatus";
 
 export type RateStatusProps = {
-  status: ExchangeRateStatus;
+  status: CombinedRateStatus;
   isRefreshing: boolean;
   disabled: boolean;
   onRefresh: () => void;
@@ -20,6 +23,9 @@ export function RateStatus({
   const [message, ...details] = formatRateStatus(status);
   const hasError = status.lastErrorAt !== null;
   const hasRates = status.response !== null;
+  const [iranianMessage, ...iranianDetails] = status.iranianBridgeStatus
+    ? formatIranianBridgeStatus(status.iranianBridgeStatus)
+    : [];
 
   return (
     <div className="rate-status flex flex-wrap items-center gap-2" aria-live="polite">
@@ -35,6 +41,12 @@ export function RateStatus({
         <span className={cn("block text-[13px] font-medium leading-4 text-foreground", hasError && "text-destructive")}>{message}</span>
         {details.length > 0 ? (
           <span className="block text-xs leading-4 text-muted-foreground">{details.join(" · ")}</span>
+        ) : null}
+        {iranianMessage ? (
+          <span className="mt-1 block text-xs leading-4 text-muted-foreground">
+            <span className="font-medium text-foreground">{iranianMessage}</span>
+            {iranianDetails.length > 0 ? ` · ${iranianDetails.join(" · ")}` : ""}
+          </span>
         ) : null}
       </span>
       <Button

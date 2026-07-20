@@ -1,3 +1,5 @@
+import type { IranianBridgeRate } from "../types/rates";
+
 export type GetSettingsMessage = {
   type: "GET_SETTINGS";
 };
@@ -14,6 +16,28 @@ export type ShowManualConversionMessage = {
 export type SettingsChangedMessage = {
   type: "settings:changed";
 };
+
+export type GetIranianBridgeRateMessage = {
+  type: "GET_IRANIAN_BRIDGE_RATE";
+  forceRefresh?: boolean;
+};
+
+export type GetIranianBridgeRateSuccessResponse = {
+  ok: true;
+  rate: IranianBridgeRate;
+  freshness: "fresh" | "stale";
+  source: "memory" | "storage" | "network";
+  refreshError?: string;
+};
+
+export type GetIranianBridgeRateFailureResponse = {
+  ok: false;
+  error: string;
+};
+
+export type GetIranianBridgeRateResponse =
+  | GetIranianBridgeRateSuccessResponse
+  | GetIranianBridgeRateFailureResponse;
 
 export type CapturePageDiagnosticsMessage = {
   type: "diagnostics:capture-page";
@@ -42,4 +66,5 @@ export type ExtensionMessage =
   | PingMessage
   | ShowManualConversionMessage
   | SettingsChangedMessage
+  | GetIranianBridgeRateMessage
   | DiagnosticsMessage;

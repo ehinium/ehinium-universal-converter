@@ -158,7 +158,7 @@ await expectRejects(
         json: async () => {
           throw new SyntaxError("malformed response");
         },
-      }) as Response),
+      }) as unknown as Response),
     }),
   "Ehinium Iranian rates returned invalid JSON",
   "malformed JSON failure",

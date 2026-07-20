@@ -11,6 +11,10 @@ import type { UserSettings } from "../types/settings";
 import { useLayoutEffect } from "react";
 import { normalizeSettings } from "../services/settings";
 import {
+  IranianBridgeClientError,
+  type IranianBridgeClientResult,
+} from "../services/iranianBridgeClient";
+import {
   useSettingsController,
   type SettingsController,
   type SettingsControllerDependencies,
@@ -57,6 +61,17 @@ function createDependencies(
     refreshRateStatus: async (baseCurrency, fetcher) => {
       await fetcher(baseCurrency);
     },
+    requestIranianBridgeRateDetails: async () => ({
+      rate: {
+        unit: "IRT",
+        usdSellIrt: 200000,
+        updatedAt: "2026-07-16T00:00:00Z",
+        sourceUpdatedAt: null,
+        provider: "ehinium",
+      },
+      freshness: "fresh",
+      source: "memory",
+    }),
     getManualConversion: async () => null,
     copyManualConversion: async () => true,
     formatManualConversionInput: (value) => value.trim(),
@@ -135,6 +150,21 @@ expectEqual(
   "normalized settings reach controller state"
 );
 expectEqual(
+  getController().currencies.some((currency) => currency.code === "IRT"),
+  true,
+  "controller target options include IRT"
+);
+expectEqual(
+  getController().currencies.some((currency) => currency.code === "IRR"),
+  false,
+  "controller target options exclude IRR"
+);
+expectEqual(
+  getController().currencies.some((currency) => currency.code === "EUR"),
+  true,
+  "controller preserves global target options"
+);
+expectEqual(
   getController().currentHostname,
   "shop.example.com",
   "popup hostname load"
@@ -209,6 +239,175 @@ await flush();
 expectEqual(rateRefreshes, 1, "rate refresh wiring");
 expectEqual(getController().isRefreshingRates, false, "rate refresh completion");
 expectEqual(getController().rateStatus.response?.base, "USD", "rate status reload");
+await view.unmount();
+
+let globalOnlyBridgeCalls = 0;
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "popup",
+    dependencies: createDependencies({
+      requestIranianBridgeRateDetails: async () => {
+        globalOnlyBridgeCalls += 1;
+        throw new Error("must not be called");
+      },
+    }),
+  })
+);
+await flush();
+expectEqual(globalOnlyBridgeCalls, 0, "global-only status skips Iranian bridge");
+await act(async () => getController().refreshRates());
+await flush();
+expectEqual(
+  globalOnlyBridgeCalls,
+  0,
+  "global-only refresh skips Iranian bridge"
+);
+await view.unmount();
+
+const statusRate = {
+  unit: "IRT" as const,
+  usdSellIrt: 200000,
+  updatedAt: "2026-07-16T10:00:00Z",
+  sourceUpdatedAt: null,
+  provider: "ehinium" as const,
+};
+const statusOptions: Array<{ forceRefresh?: boolean }> = [];
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "popup",
+    dependencies: createDependencies({
+      getSettings: async () => ({ ...initialSettings, targetCurrency: "IRT" }),
+      requestIranianBridgeRateDetails: async (options = {}) => {
+        statusOptions.push(options);
+        return {
+          rate: statusRate,
+          freshness: "fresh",
+          source: "network",
+        };
+      },
+    }),
+  })
+);
+await flush();
+expectEqual(statusOptions.length, 1, "IRT target requests Iranian status");
+expectEqual(
+  getController().rateStatus.iranianBridgeStatus?.state,
+  "fresh",
+  "IRT target exposes fresh Iranian status"
+);
+expectEqual(
+  getController().rateStatus.response?.base,
+  "USD",
+  "IRT target keeps independent USD global status"
+);
+await act(async () => getController().refreshRates());
+await flush();
+expectEqual(
+  statusOptions.at(-1)?.forceRefresh,
+  true,
+  "relevant refresh forces Iranian bridge"
+);
+await view.unmount();
+
+for (const sourceInput of ["IRT 100", "IRR 1000"]) {
+  let manualSourceBridgeCalls = 0;
+  view = await mount(
+    createElement(ControllerProbe, {
+      surface: "popup",
+      dependencies: createDependencies({
+        requestIranianBridgeRateDetails: async () => {
+          manualSourceBridgeCalls += 1;
+          return {
+            rate: statusRate,
+            freshness: "fresh",
+            source: "memory",
+          };
+        },
+      }),
+    })
+  );
+  await flush();
+  await act(async () => getController().updateManualInput(sourceInput));
+  await flush();
+  expectEqual(
+    manualSourceBridgeCalls,
+    1,
+    `manual ${sourceInput} requests Iranian status`
+  );
+  await view.unmount();
+}
+
+for (const [error, expectedState] of [
+  [new Error("Bearer secret-token"), "unavailable"],
+  [new IranianBridgeClientError("misconfigured"), "misconfigured"],
+] as const) {
+  view = await mount(
+    createElement(ControllerProbe, {
+      surface: "popup",
+      dependencies: createDependencies({
+        getSettings: async () => ({ ...initialSettings, targetCurrency: "IRT" }),
+        requestIranianBridgeRateDetails: async () => {
+          throw error;
+        },
+      }),
+    })
+  );
+  await flush();
+  expectEqual(
+    getController().rateStatus.response?.base,
+    "USD",
+    `${expectedState} bridge preserves global status`
+  );
+  expectEqual(
+    getController().rateStatus.iranianBridgeStatus?.state,
+    expectedState,
+    `${expectedState} bridge status`
+  );
+  expectEqual(
+    JSON.stringify(getController().rateStatus).includes("secret-token"),
+    false,
+    `${expectedState} status hides sensitive text`
+  );
+  await view.unmount();
+}
+
+const statusResolvers: Array<(result: IranianBridgeClientResult) => void> = [];
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "popup",
+    dependencies: createDependencies({
+      requestIranianBridgeRateDetails: () =>
+        new Promise((resolve) => statusResolvers.push(resolve)),
+    }),
+  })
+);
+await flush();
+await act(async () => getController().updateManualInput("IRT 100"));
+await flush();
+await act(async () => getController().updateManualInput("IRR 1000"));
+await flush();
+await act(async () =>
+  statusResolvers[1]?.({
+    rate: { ...statusRate, updatedAt: "2026-07-16T11:00:00Z" },
+    freshness: "fresh",
+    source: "storage",
+  })
+);
+await flush();
+await act(async () =>
+  statusResolvers[0]?.({
+    rate: { ...statusRate, updatedAt: "2026-07-16T09:00:00Z" },
+    freshness: "stale",
+    source: "memory",
+    refreshError: "Iranian rates refresh failed",
+  })
+);
+await flush();
+expectEqual(
+  getController().rateStatus.iranianBridgeStatus?.updatedAt,
+  "2026-07-16T11:00:00Z",
+  "stale Iranian status result cannot overwrite newer request"
+);
 await view.unmount();
 
 const emptyRateStatus = {
@@ -376,3 +575,102 @@ await view.unmount();
 resolveStaleLoad?.(initialSettings);
 await flush();
 expectEqual(getController().isLoading, true, "unmounted load result is ignored");
+
+async function waitForManualConversion(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+  await flush();
+}
+
+const manualInputs: string[] = [];
+const manualGlobalBases: string[] = [];
+const manualControllerDependencies = createDependencies({
+  getExchangeRates: async (baseCurrency) => {
+    manualGlobalBases.push(baseCurrency);
+    return { ...rateResponse, base: baseCurrency, rates: { [baseCurrency]: 1 } };
+  },
+  getManualConversion: async (value, _settings, conversionDependencies) => {
+    manualInputs.push(value);
+    await conversionDependencies.getGlobalRates?.("USD");
+    return { source: "100 USD", converted: "$100.00" };
+  },
+});
+
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "popup",
+    dependencies: manualControllerDependencies,
+  })
+);
+await flush();
+await act(async () => {
+  getController().updateManualInput("USD 100");
+});
+await waitForManualConversion();
+expectEqual(
+  manualInputs.join(","),
+  "USD 100",
+  "popup controller forwards currency input to manual conversion"
+);
+expectEqual(
+  manualGlobalBases.join(","),
+  "USD",
+  "popup controller exposes normalized global rate loader"
+);
+expectEqual(
+  getController().manualResult?.converted,
+  "$100.00",
+  "popup controller publishes manual conversion result"
+);
+await view.unmount();
+
+const manualResolvers = new Map<
+  string,
+  (result: { source: string; converted: string }) => void
+>();
+view = await mount(
+  createElement(ControllerProbe, {
+    surface: "popup",
+    dependencies: createDependencies({
+      getManualConversion: (value) =>
+        new Promise((resolve) => {
+          manualResolvers.set(value, resolve);
+        }),
+    }),
+  })
+);
+await flush();
+await act(async () => {
+  getController().updateManualInput("USD 100");
+});
+await waitForManualConversion();
+await act(async () => {
+  getController().updateManualInput("USD 200");
+});
+await waitForManualConversion();
+await act(async () => {
+  manualResolvers.get("USD 200")?.({
+    source: "200 USD",
+    converted: "$200.00",
+  });
+});
+await flush();
+expectEqual(
+  getController().manualResult?.converted,
+  "$200.00",
+  "newer manual result is displayed"
+);
+await act(async () => {
+  manualResolvers.get("USD 100")?.({
+    source: "100 USD",
+    converted: "$100.00",
+  });
+});
+await flush();
+expectEqual(
+  getController().manualResult?.converted,
+  "$200.00",
+  "stale manual result cannot overwrite newer input"
+);
+await view.unmount();

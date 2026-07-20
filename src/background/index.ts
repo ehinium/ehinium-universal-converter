@@ -4,10 +4,19 @@ import {
   type SelectedTextConversionDependencies,
 } from "../services/selectedTextConverter";
 import { getSettings } from "../services/settings";
-import type { ExtensionMessage } from "../shared/messages";
+import type {
+  ExtensionMessage,
+  GetIranianBridgeRateMessage,
+  GetIranianBridgeRateResponse,
+} from "../shared/messages";
+import { createIranianBridgeMessageHandler } from "./iranianBridgeHandler";
 
 const CONTEXT_MENU_ID = "ehinium-convert-selection";
 const CONTEXT_MENU_TITLE = "Convert with Ehinium Universal Converter";
+const iranianBridgeMessageHandler = createIranianBridgeMessageHandler({
+  apiUrl: __EUC_IRANIAN_RATES_API_URL__,
+  token: __EUC_IRANIAN_RATES_TOKEN__,
+});
 
 const conversionDependencies: SelectedTextConversionDependencies = {
   async getRates(baseCurrency) {
@@ -35,6 +44,16 @@ function isExtensionMessage(message: unknown): message is ExtensionMessage {
     type === "PING" ||
     type === "GET_SETTINGS" ||
     type === "SHOW_MANUAL_CONVERSION"
+  );
+}
+
+function isIranianBridgeMessage(
+  message: unknown
+): message is GetIranianBridgeRateMessage {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    (message as Record<string, unknown>).type === "GET_IRANIAN_BRIDGE_RATE"
   );
 }
 
@@ -74,6 +93,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+  if (isIranianBridgeMessage(message)) {
+    void iranianBridgeMessageHandler(message).then(
+      (response) => {
+        if (response !== undefined) {
+          sendResponse(response);
+        }
+      },
+      () => {
+        sendResponse({
+          ok: false,
+          error: "Iranian rates are unavailable",
+        } satisfies GetIranianBridgeRateResponse);
+      }
+    );
+    return true;
+  }
+
   if (!isExtensionMessage(message)) {
     return false;
   }

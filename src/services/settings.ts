@@ -8,12 +8,12 @@ import type {
   UnitSystem,
   UserSettings,
 } from "../types/settings";
-import { fiatCurrencies } from "../data/currencies";
+import { selectableTargetCurrencies } from "../data/currencies";
 import { defaultSettings } from "../utils/defaultSettings";
 
 const STORAGE_KEY = "euc-settings";
 const supportedCurrencyCodes = new Set(
-  fiatCurrencies.map((currency) => currency.code)
+  selectableTargetCurrencies.map((currency) => currency.code)
 );
 
 export function normalizeSettings(value: unknown): UserSettings {
@@ -69,6 +69,10 @@ function normalizeTargetCurrency(value: unknown): string {
   }
 
   const normalized = value.trim().toUpperCase();
+  if (normalized === "IRR") {
+    return "IRT";
+  }
+
   return supportedCurrencyCodes.has(normalized)
     ? normalized
     : defaultSettings.targetCurrency;

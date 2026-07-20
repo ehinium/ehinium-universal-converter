@@ -56,6 +56,16 @@ export function formatConvertedCurrency(
 ): string {
   const normalizedCurrency = currency.toUpperCase();
 
+  if (normalizedCurrency === "IRT" || normalizedCurrency === "IRR") {
+    const tomanAmount = normalizedCurrency === "IRR" ? amount / 10 : amount;
+    const formattedAmount = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(tomanAmount);
+
+    return `${formattedAmount} IRT`;
+  }
+
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",

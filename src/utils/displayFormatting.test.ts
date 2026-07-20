@@ -25,6 +25,18 @@ for (const [amount, expected] of [
   );
 }
 
+for (const [amount, currency, expected, description] of [
+  [20000000, "IRT", "20,000,000 IRT", "grouped IRT output"],
+  [1234.75, "IRT", "1,235 IRT", "zero-decimal IRT output"],
+  [200000000, "IRR", "20,000,000 IRT", "IRR output normalization"],
+] as const) {
+  expectEqual(
+    formatConvertedCurrency(amount, currency),
+    expected,
+    description
+  );
+}
+
 for (const [amount, unit, expected] of [
   [25.4, "cm", "25.4 cm"],
   [1.52, "m", "1.52 m"],

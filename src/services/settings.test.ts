@@ -1,4 +1,8 @@
 import type { UserSettings } from "../types/settings";
+import {
+  fiatCurrencies,
+  selectableTargetCurrencies,
+} from "../data/currencies";
 import { defaultSettings } from "../utils/defaultSettings";
 import { getSettings, normalizeSettings } from "./settings";
 
@@ -63,6 +67,40 @@ expectEqual(
   normalizeSettings({ targetCurrency: "NOT" }).targetCurrency,
   defaultSettings.targetCurrency,
   "invalid target currency"
+);
+expectEqual(
+  normalizeSettings({
+    targetCurrency: "IRR",
+    enabled: false,
+    whitelist: ["example.com"],
+  }),
+  {
+    ...defaultSettings,
+    targetCurrency: "IRT",
+    enabled: false,
+    whitelist: ["example.com"],
+  },
+  "persisted IRR target migrates to IRT"
+);
+expectEqual(
+  selectableTargetCurrencies.some((currency) => currency.code === "IRT"),
+  true,
+  "IRT remains selectable"
+);
+expectEqual(
+  selectableTargetCurrencies.some((currency) => currency.code === "IRR"),
+  false,
+  "IRR is not selectable"
+);
+expectEqual(
+  selectableTargetCurrencies.some((currency) => currency.code === "USD"),
+  true,
+  "global targets remain selectable"
+);
+expectEqual(
+  fiatCurrencies.some((currency) => currency.code === "IRR"),
+  true,
+  "IRR remains canonical parser metadata"
 );
 expectEqual(
   normalizeSettings({

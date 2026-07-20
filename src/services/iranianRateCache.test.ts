@@ -60,6 +60,14 @@ function snapshot(
   return { rate: cachedRate, fetchedAt, expiresAt };
 }
 
+function invalidSnapshot(
+  cachedRate: unknown,
+  fetchedAt: number,
+  expiresAt: number
+): unknown {
+  return { rate: cachedRate, fetchedAt, expiresAt };
+}
+
 const originalChrome = globalThis.chrome;
 const stored = new Map<string, unknown>();
 let readFailure = false;
@@ -258,14 +266,14 @@ try {
 
   const invalidSnapshots: Array<[string, unknown]> = [
     ["malformed snapshot", "not-an-object"],
-    ["invalid provider", snapshot({ ...networkRate, provider: "other" } as IranianBridgeRate, 1, 2)],
-    ["invalid unit", snapshot({ ...networkRate, unit: "IRR" } as IranianBridgeRate, 1, 2)],
+    ["invalid provider", invalidSnapshot({ ...networkRate, provider: "other" }, 1, 2)],
+    ["invalid unit", invalidSnapshot({ ...networkRate, unit: "IRR" }, 1, 2)],
     ["zero rate", snapshot({ ...networkRate, usdSellIrt: 0 }, 1, 2)],
     ["negative rate", snapshot({ ...networkRate, usdSellIrt: -1 }, 1, 2)],
     ["NaN rate", snapshot({ ...networkRate, usdSellIrt: Number.NaN }, 1, 2)],
     ["infinite rate", snapshot({ ...networkRate, usdSellIrt: Number.POSITIVE_INFINITY }, 1, 2)],
     ["empty updatedAt", snapshot({ ...networkRate, updatedAt: " " }, 1, 2)],
-    ["invalid sourceUpdatedAt", snapshot({ ...networkRate, sourceUpdatedAt: 42 } as IranianBridgeRate, 1, 2)],
+    ["invalid sourceUpdatedAt", invalidSnapshot({ ...networkRate, sourceUpdatedAt: 42 }, 1, 2)],
     ["invalid fetchedAt", snapshot(networkRate, Number.NaN, 2)],
     ["invalid expiresAt", snapshot(networkRate, 1, Number.POSITIVE_INFINITY)],
     ["expiration before fetch", snapshot(networkRate, 2, 1)],

@@ -1,8 +1,17 @@
+import { getConversionRatesForPair } from "../services/conversionRateOrchestrator";
+import { requestIranianBridgeRate } from "../services/iranianBridgeClient";
 import { getExchangeRates } from "../services/rates";
-import type { ExchangeRates } from "../types/rates";
+import type {
+  ExchangeRates,
+  IranianBridgeRate,
+  NormalizedRatesResponse,
+} from "../types/rates";
 import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
-import type { CurrencyMatch } from "../utils/currencyParser";
+import {
+  parseCurrencies,
+  type CurrencyMatch,
+} from "../utils/currencyParser";
 import { debugLog, type DebugEvent } from "./debug";
 import { renderConversions, type RenderConversionOptions } from "./domRenderer";
 import type { ScanRequest } from "./scanScheduler";
@@ -17,7 +26,10 @@ export type ConversionScanResult = {
 
 export type ConversionScanDependencies = {
   collectTextNodesForScan?: (roots: readonly Node[]) => Promise<Text[]>;
-  getExchangeRates?: (targetCurrency: string) => Promise<{ rates: ExchangeRates }>;
+  getExchangeRates?: (
+    targetCurrency: string
+  ) => Promise<NormalizedRatesResponse>;
+  requestIranianBridgeRate?: () => Promise<IranianBridgeRate>;
   renderConversions?: (
     textNodes: Iterable<Text>,
     options: RenderConversionOptions
@@ -59,7 +71,7 @@ export function renderUnitConversionsOnly(
 export function renderCurrencyConversionsOnly(
   textNodes: readonly Text[],
   settings: UserSettings,
-  rates: ExchangeRates,
+  rates: ExchangeRates | Map<string, ExchangeRates>,
   scanRoots?: readonly Node[],
   render: ConversionScanDependencies["renderConversions"] = renderConversions
 ): number {
@@ -69,14 +81,44 @@ export function renderCurrencyConversionsOnly(
     renderUnits: false,
     scanRoots,
     convertAmount(match: CurrencyMatch) {
+      const matchRates = rates instanceof Map ? rates.get(match.currency) : rates;
+
+      if (!matchRates) {
+        return null;
+      }
+
       return convertCurrency(
         match.amount,
         match.currency,
         settings.targetCurrency,
-        rates
+        matchRates
       );
     },
   });
+}
+
+function discoverSourceCurrencies(
+  textNodes: readonly Text[],
+  groupedCurrencies: readonly { currency: string }[],
+  targetCurrency: string
+): Set<string> {
+  const sourceCurrencies = new Set<string>();
+
+  for (const node of textNodes) {
+    for (const match of parseCurrencies(node.textContent ?? "")) {
+      if (match.currency !== targetCurrency) {
+        sourceCurrencies.add(match.currency);
+      }
+    }
+  }
+
+  for (const match of groupedCurrencies) {
+    if (match.currency !== targetCurrency) {
+      sourceCurrencies.add(match.currency);
+    }
+  }
+
+  return sourceCurrencies;
 }
 
 export async function scanConversionRoots(
@@ -87,6 +129,8 @@ export async function scanConversionRoots(
   const collect =
     dependencies.collectTextNodesForScan ?? collectTextNodesForScan;
   const loadRates = dependencies.getExchangeRates ?? getExchangeRates;
+  const loadIranianBridge =
+    dependencies.requestIranianBridgeRate ?? requestIranianBridgeRate;
   const render = dependencies.renderConversions ?? renderConversions;
   const writeDebug = dependencies.debugLog ?? debugLog;
   const roots = request.roots ?? [document.body];
@@ -98,10 +142,12 @@ export async function scanConversionRoots(
     incrementPerfCounter("totalDomNodesVisited", textNodes.length);
     incrementPerfCounter("priceLikeElementsInspected", textNodes.length);
   }
+  const groupedCurrencyCandidates =
+    settings.converterMode === "units"
+      ? []
+      : detectGroupedPricesInRoots(roots);
   const hasGroupedCurrencyCandidates =
-    textNodes.length === 0 &&
-    settings.converterMode !== "units" &&
-    detectGroupedPricesInRoots(roots).length > 0;
+    textNodes.length === 0 && groupedCurrencyCandidates.length > 0;
   let renderedCount = 0;
 
   if (textNodes.length === 0 && !hasGroupedCurrencyCandidates) {
@@ -132,21 +178,66 @@ export async function scanConversionRoots(
       : renderUnitConversionsOnly(textNodes, settings, render);
   }
 
-  let ratesData: { rates: ExchangeRates };
+  const sourceCurrencies = discoverSourceCurrencies(
+    textNodes,
+    groupedCurrencyCandidates,
+    settings.targetCurrency
+  );
 
-  try {
-    ratesData = perfDiagnosticsEnabled
-      ? await measurePerfAsync("rates-load-total", () => loadRates(settings.targetCurrency))
-      : await loadRates(settings.targetCurrency);
-  } catch (error) {
-    writeDebug({
-      type: "error",
-      reason: error instanceof Error ? error.message : String(error),
-    });
+  if (sourceCurrencies.size === 0) {
     return {
       scannedNodeCount: textNodes.length,
       renderedCount,
     };
+  }
+
+  const globalRatesByBase = new Map<
+    string,
+    Promise<NormalizedRatesResponse>
+  >();
+  let bridgePromise: Promise<IranianBridgeRate> | undefined;
+
+  const getGlobalRates = (baseCurrency: string) => {
+    let promise = globalRatesByBase.get(baseCurrency);
+
+    if (!promise) {
+      promise = Promise.resolve().then(() => loadRates(baseCurrency));
+      globalRatesByBase.set(baseCurrency, promise);
+    }
+
+    return promise;
+  };
+  const getIranianBridge = () => {
+    bridgePromise ??= Promise.resolve().then(() => loadIranianBridge());
+    return bridgePromise;
+  };
+  const ratesBySource = new Map<string, ExchangeRates>();
+
+  const composeRates = async () => {
+    await Promise.all(
+      [...sourceCurrencies].map(async (sourceCurrency) => {
+        try {
+          const rates = await getConversionRatesForPair({
+            sourceCurrency,
+            targetCurrency: settings.targetCurrency,
+            getGlobalRates,
+            getIranianBridge,
+          });
+          ratesBySource.set(sourceCurrency, rates);
+        } catch (error) {
+          writeDebug({
+            type: "error",
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })
+    );
+  };
+
+  if (perfDiagnosticsEnabled) {
+    await measurePerfAsync("rates-load-total", composeRates);
+  } else {
+    await composeRates();
   }
 
   if (dependencies.settingsChanged?.()) {
@@ -161,7 +252,21 @@ export async function scanConversionRoots(
     };
   }
 
-  const renderCurrencies = () => renderCurrencyConversionsOnly(textNodes, settings, ratesData.rates, roots, render);
+  if (ratesBySource.size === 0) {
+    return {
+      scannedNodeCount: textNodes.length,
+      renderedCount,
+    };
+  }
+
+  const renderCurrencies = () =>
+    renderCurrencyConversionsOnly(
+      textNodes,
+      settings,
+      ratesBySource,
+      roots,
+      render
+    );
   renderedCount += perfDiagnosticsEnabled
     ? measurePerf(request.reason === "initial" ? "initial-render" : "badge-reconciliation", renderCurrencies)
     : renderCurrencies();

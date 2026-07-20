@@ -197,3 +197,6 @@ export const globalProviderFiatCurrencies: CurrencyDefinition[] =
   fiatCurrencies.filter(
     (currency) => !iranianBridgeCurrencyCodeSet.has(currency.code)
   );
+
+export const selectableTargetCurrencies: CurrencyDefinition[] =
+  fiatCurrencies.filter((currency) => currency.code !== "IRR");

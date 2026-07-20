@@ -1,4 +1,8 @@
-import type { ExchangeRates } from "../types/rates";
+import type {
+  ExchangeRates,
+  IranianBridgeRate,
+  NormalizedRatesResponse,
+} from "../types/rates";
 import type { UserSettings } from "../types/settings";
 import { convertCurrency } from "../utils/currencyConverter";
 import { parseCurrencies } from "../utils/currencyParser";
@@ -11,9 +15,15 @@ import {
 import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
 import { parseUnits } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
+import { getConversionRatesForPair } from "./conversionRateOrchestrator";
+import { requestIranianBridgeRate } from "./iranianBridgeClient";
 
 export type SelectedTextConversionDependencies = {
   getRates: (baseCurrency: string) => Promise<ExchangeRates>;
+  getGlobalRates?: (
+    baseCurrency: string
+  ) => Promise<NormalizedRatesResponse>;
+  getIranianBridge?: () => Promise<IranianBridgeRate>;
 };
 
 export type ManualConversionResult = {
@@ -32,7 +42,7 @@ function getTargetUnit(match: UnitMatch, settings: UserSettings): UnitCode | nul
   return resolveTargetUnit(match.unit, settings.unitSystem, exactTarget);
 }
 
-async function convertFirstCurrency(
+async function convertFirstSelectedCurrency(
   text: string,
   settings: UserSettings,
   dependencies: SelectedTextConversionDependencies
@@ -43,7 +53,22 @@ async function convertFirstCurrency(
     return null;
   }
 
-  const rates = await dependencies.getRates(settings.targetCurrency);
+  const getGlobalRates =
+    dependencies.getGlobalRates ??
+    (async (baseCurrency: string): Promise<NormalizedRatesResponse> => ({
+      base: baseCurrency,
+      date: "",
+      provider: "frankfurter",
+      rates: await dependencies.getRates(baseCurrency),
+    }));
+
+  const rates = await getConversionRatesForPair({
+    sourceCurrency: match.currency,
+    targetCurrency: settings.targetCurrency,
+    getGlobalRates,
+    getIranianBridge:
+      dependencies.getIranianBridge ?? requestIranianBridgeRate,
+  });
   const converted = convertCurrency(
     match.amount,
     match.currency,
@@ -100,7 +125,11 @@ export async function getManualConversion(
     let currencyResult: ManualConversionResult | null = null;
 
     try {
-      currencyResult = await convertFirstCurrency(text, settings, dependencies);
+      currencyResult = await convertFirstSelectedCurrency(
+        text,
+        settings,
+        dependencies
+      );
     } catch {
       // A provider failure should not prevent an available unit conversion.
     }
@@ -120,5 +149,27 @@ export async function convertSelectedText(
   settings: UserSettings,
   dependencies: SelectedTextConversionDependencies
 ): Promise<string | null> {
-  return (await getManualConversion(text, settings, dependencies))?.converted ?? null;
+  if (!settings.enabled || !text.trim()) {
+    return null;
+  }
+
+  if (settings.converterMode !== "units") {
+    try {
+      const currencyResult = await convertFirstSelectedCurrency(
+        text,
+        settings,
+        dependencies
+      );
+
+      if (currencyResult) {
+        return currencyResult.converted;
+      }
+    } catch {
+      // A rate failure should not prevent an available unit conversion.
+    }
+  }
+
+  return settings.converterMode === "currencies"
+    ? null
+    : convertFirstUnit(text, settings)?.converted ?? null;
 }
