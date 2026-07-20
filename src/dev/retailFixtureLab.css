@@ -1,0 +1,52 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #171717; background: #f4f4f5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, select, input { font: inherit; }
+.lab { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
+.lab-header, .toolbar, .summary, .fixture { background: white; border: 1px solid #dedee3; border-radius: 14px; }
+.lab-header { display: flex; justify-content: space-between; gap: 24px; padding: 24px; margin-bottom: 16px; }
+.lab-header h1 { margin: 4px 0 8px; font-size: 28px; }
+.lab-header p { margin: 0; color: #666; max-width: 820px; }
+.eyebrow { text-transform: uppercase; letter-spacing: .09em; font-size: 12px; font-weight: 700; }
+.dev-chip { align-self: flex-start; padding: 7px 10px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 700; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; padding: 14px; margin-bottom: 16px; position: sticky; top: 8px; z-index: 20; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+.toolbar label { display: grid; gap: 5px; color: #555; font-size: 12px; }
+.toolbar input, .toolbar select { min-height: 38px; border: 1px solid #ccc; border-radius: 8px; padding: 0 10px; background: white; }
+.toolbar button { min-height: 38px; border: 0; border-radius: 8px; padding: 0 13px; background: #18181b; color: white; cursor: pointer; }
+.toolbar button.secondary { background: #e4e4e7; color: #18181b; }
+.summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin-bottom: 16px; background: #dedee3; }
+.metric { background: white; padding: 14px; }
+.metric strong { display: block; font-size: 22px; }
+.metric span { color: #666; font-size: 12px; }
+.fixture-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.fixture { overflow: hidden; }
+.fixture-head { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e8e8eb; }
+.fixture-head h2 { font-size: 14px; margin: 0; }
+.fixture-head p { font-size: 11px; color: #777; margin: 3px 0 0; }
+.fixture-state { font-size: 11px; font-weight: 700; padding: 5px 8px; border-radius: 999px; height: fit-content; }
+.fixture-state.pass { background: #dcfce7; color: #166534; }
+.fixture-state.fail { background: #fee2e2; color: #991b1b; }
+.fixture-state.pending { background: #f4f4f5; color: #52525b; }
+.fixture-stage { padding: 16px; min-height: 190px; }
+.fixture-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-top: 1px solid #e8e8eb; }
+.fixture-actions button { border: 1px solid #d4d4d8; background: white; border-radius: 7px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
+.fixture-log { border-top: 1px solid #e8e8eb; background: #fafafa; margin: 0; padding: 10px 14px; max-height: 145px; overflow: auto; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+.product-card { color: #111; }
+.product-image { height: 94px; border-radius: 10px; background: linear-gradient(135deg,#f4f4f5,#e4e4e7); margin-bottom: 12px; }
+.product-title { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
+.price-row { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.price { font-size: 25px; font-weight: 700; }
+.old-price { color: #777; text-decoration: line-through; }
+.discount { color: #b91c1c; font-weight: 700; }
+.split-price { display: inline-flex; align-items: flex-start; font-weight: 700; }
+.split-price .whole { font-size: 28px; }
+.split-price .fraction { font-size: 13px; margin-top: 3px; }
+.split-price .symbol { font-size: 13px; margin-top: 3px; }
+.rtl { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
+.market-dark { background: #18181b; color: #fafafa; border-radius: 10px; padding: 14px; }
+.market-dark .old-price { color: #aaa; }
+.market-button { display: inline-block; border: 0; padding: 0; background: transparent; color: inherit; text-align: inherit; cursor: pointer; }
+.variant-list { display: flex; gap: 6px; margin-top: 10px; }
+.variant-list button { border: 1px solid #ccc; background: white; padding: 6px 8px; border-radius: 6px; }
+.hidden { display: none !important; }
+@media (max-width: 700px) { .summary { grid-template-columns: 1fr 1fr; } .lab-header { display: block; } .dev-chip { display: inline-block; margin-top: 12px; } }
