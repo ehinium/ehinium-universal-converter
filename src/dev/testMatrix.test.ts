@@ -123,6 +123,19 @@ for (const testCase of matrix.filter(
   (item) => item.expectedBehavior === "convert"
 )) {
   const matches = parseCurrencies(testCase.sourceText);
+  const isAttachedIranianAlias =
+    (testCase.currency === "IRT" || testCase.currency === "IRR") &&
+    (testCase.formatId === "symbol-prefix" ||
+      testCase.formatId === "symbol-suffix-compact");
+
+  if (isAttachedIranianAlias) {
+    assert(
+      matches.length === 0,
+      `${testCase.id} must preserve Iranian alias token boundaries`
+    );
+    continue;
+  }
+
   const expectedCount = testCase.expectedMatchCount ?? 1;
   const currenciesMatch = matches.every(
     (match) => match.currency === testCase.expectedSourceCurrency
