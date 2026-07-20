@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 - 2026-07-20
+
+### Added
+
+- Iranian Toman (`IRT`) as a selectable target, powered by the Ehinium rates bridge
+- Automatic page conversion to IRT and popup conversion to and from Iranian currencies
+- Input recognition for IRR, Rial, Rials, ریال, Toman, TMN, تومان, and supported decorated aliases
+- Independent Iranian rate status and stale-cache fallback
+
+### Changed
+
+- IRT is the only user-facing Iranian output; saved IRR targets migrate to IRT
+- Global and Iranian provider availability are reported independently
+- The main test workflow now includes the Iranian integration suites
+
+### Fixed
+
+- Vite loads `EUC_IRANIAN_RATES_TOKEN` from `.env.local` and shell or CI environments
+- TypeScript compatibility in Iranian rate tests and conversion scanning
+- Global-only pages avoid unnecessary Iranian requests, while multiple page conversions reuse shared rate requests
+
 ## 0.2.1 - 2026-07-19
 
 ### Improved

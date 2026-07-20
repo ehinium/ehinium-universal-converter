@@ -19,14 +19,18 @@ import {
 } from "./domScanner";
 import {
   getCurrencyPlacementSkipReason,
+  getCurrencyRenderAccounting,
   getCurrencyTextNodeRenderSkipReason,
 } from "./domRenderer";
 import { getDebugEvents } from "./debug";
 import { findPriceAnchor, selectPriceAnchor } from "./priceAnchor";
 import { collectTextNodesForScan } from "./scanRoots";
 import {
-  collectCurrencyDomMatches,
   collectSourceTextFragments,
+  classifyCurrencySourceVisibility,
+  discoverCurrencyMatchesInRoots,
+  getCurrencyDomDiscoveryCounters,
+  type DomCurrencyDiscoveryResult,
 } from "./currencyDomMatches";
 import { getDuplicateDecision } from "./currencyMatchState";
 import {
@@ -39,11 +43,6 @@ import {
 } from "./badgeHostRegistry";
 import { getBadgeVisibilityDiagnostics } from "./badgeVisibility";
 import { getTranslationWrapperDiagnostic } from "./translationLineage";
-import {
-  getOverlayPlacementDiagnostics,
-  getOverlayPlacementGroupDiagnostics,
-  getRenderLifecycleDiagnostics,
-} from "./badgeLifecycle";
 import {
   getCandidateDiscoveryDiagnostics,
   getCanonicalizationDiagnostics,
@@ -226,7 +225,10 @@ function findPriceContextElement(node: Text): HTMLElement | null {
   return node.parentElement;
 }
 
-function collectPriceLikeElements(root: Element): PriceLikeElementDiagnostic[] {
+function collectPriceLikeElements(
+  root: Element,
+  rootDiscovery: DomCurrencyDiscoveryResult
+): PriceLikeElementDiagnostic[] {
   const candidates: PriceLikeElementDiagnostic[] = [];
 
   for (const element of [root, ...root.querySelectorAll("*")].slice(
@@ -239,7 +241,38 @@ function collectPriceLikeElements(root: Element): PriceLikeElementDiagnostic[] {
     if (!text || text.length > MAX_ELEMENT_TEXT || !looksPriceLike(text) || !isVisibleElement(element)) continue;
 
     const directTextNodes = getDirectTextNodes(element);
-    const parserMatches = parseCurrencies(text);
+    const rawTextContentParserMatches = parseCurrencies(text);
+    const elementMatches = rootDiscovery.matches.filter((match) =>
+      match.sourceNodes.every((node) => element.contains(node))
+    );
+    const elementRejections = rootDiscovery.rejectedMatches.filter((rejection) =>
+      element.contains(rejection.sourceNode)
+    );
+    const productionDomMatches = elementMatches.map((match) => match.match);
+    const candidateDiagnostics = getCandidateDiscoveryDiagnostics();
+    const discoveryRecords: PriceLikeElementDiagnostic["discoveryRecords"] = [
+      ...elementMatches.map((domMatch) => {
+        const candidate = candidateDiagnostics.find((item) =>
+          item.amount === domMatch.match.amount &&
+          item.sourceCurrency === domMatch.match.currency &&
+          item.normalizedMatchedText === domMatch.match.raw.trim().replace(/\s+/gu, " ").toLocaleLowerCase()
+        );
+        return candidate
+          ? { discoveryOutcome: "candidate-created" as const, candidateId: candidate.candidateId, match: domMatch.match }
+          : {
+              discoveryOutcome: "queued-for-next-batch" as const,
+              match: domMatch.match,
+              rejectionReason: "Visible DOM match is queued for the next applicable production scan batch",
+            };
+      }),
+      ...elementRejections.flatMap((rejection) =>
+        rejection.parserMatches.map((match) => ({
+          discoveryOutcome: rejection.discoveryOutcome,
+          match,
+          rejectionReason: rejection.rejectionReason,
+        }))
+      ),
+    ];
     const meaningfulChildren = [...element.childNodes].filter((node) => truncate(node.textContent ?? "").length > 0);
     candidates.push({
       selector: getDiagnosticSelector(element),
@@ -248,7 +281,10 @@ function collectPriceLikeElements(root: Element): PriceLikeElementDiagnostic[] {
       directTextNodes,
       splitAcrossNodes: meaningfulChildren.length > 1,
       visible: true,
-      parserMatches,
+      parserMatches: productionDomMatches,
+      rawTextContentParserMatches,
+      productionDomMatches,
+      discoveryRecords,
     });
   }
 
@@ -268,7 +304,7 @@ function createEvent(
 async function collectTextNodeDiagnostics(
   root: Element,
   settings: UserSettings | null
-): Promise<{ textNodes: TextNodeDiagnostic[]; events: DiagnosticEvent[] }> {
+): Promise<{ textNodes: TextNodeDiagnostic[]; events: DiagnosticEvent[]; discovery: DomCurrencyDiscoveryResult }> {
   const allNodes: Text[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let current = walker.nextNode();
@@ -278,7 +314,8 @@ async function collectTextNodeDiagnostics(
   }
 
   const scannedNodes = new Set(await collectTextNodesForScan([root]));
-  const domMatches = collectCurrencyDomMatches([...scannedNodes]);
+  const discovery = discoverCurrencyMatchesInRoots([root]);
+  const domMatches = discovery.matches;
   const allMatches = domMatches.map((candidate) => candidate.match);
   let rates: Record<string, number> | null = null;
   if (settings && settings.converterMode !== "units" && allMatches.some((match) => match.currency !== settings.targetCurrency)) {
@@ -299,7 +336,8 @@ async function collectTextNodeDiagnostics(
     const scanSkipReason = scanned ? undefined : scanExclusion?.reason ?? getTextNodeScanExclusionReason(node) ?? "Node was outside the collected scan roots or scan limit";
     events.push(createEvent("scanner", scanned ? "pass" : "skip", { textNodeId: id, selector: parent ? getDiagnosticSelector(parent) : undefined, reason: scanSkipReason }));
 
-    const parserMatches = scanned ? parseCurrencies(text) : [];
+    const discoveryEligible = domMatches.some((candidate) => candidate.sourceNodes.includes(node));
+    const parserMatches = scanned || discoveryEligible ? parseCurrencies(text) : [];
     events.push(createEvent("parser", scanned ? (parserMatches.length ? "pass" : "skip") : "skip", { textNodeId: id, selector: parent ? getDiagnosticSelector(parent) : undefined, reason: scanned && parserMatches.length === 0 ? "Production parser produced no matches" : scanSkipReason }));
     const priceContext = findPriceContextElement(node);
     const siblingTextFragments = priceContext
@@ -329,6 +367,13 @@ async function collectTextNodeDiagnostics(
     const nodeDomMatches = domMatches.filter(
       (candidate) => candidate.sourceNodes[0] === node
     );
+    if (scanned && parserMatches.length > 0 && nodeDomMatches.length === 0) {
+      events.push(createEvent("parser", "fail", {
+        textNodeId: id,
+        selector: parent ? getDiagnosticSelector(parent) : undefined,
+        reason: "Parser match was found but candidate construction or anchor selection rejected it",
+      }));
+    }
     const productionEvents = getDebugEvents();
     const matchDiagnostics: MatchPipelineDiagnostic[] = nodeDomMatches.map(
       (candidate) => {
@@ -348,8 +393,37 @@ async function collectTextNodeDiagnostics(
             : candidate.sourceNodes.map((sourceNode) => sourceNode.textContent ?? "").join(""),
           candidate.scanKind === "direct" ? candidate.match : undefined
         );
+        const candidateDiagnostic = getCandidateDiscoveryDiagnostics().find((item) =>
+          item.amount === candidate.match.amount &&
+          item.sourceCurrency === candidate.match.currency &&
+          item.normalizedMatchedText === candidate.match.raw.trim().replace(/\s+/gu, " ").toLocaleLowerCase()
+        );
+        const epoch = candidateDiagnostic?.candidateId.match(/^candidate-(\d+)-/u)?.[1];
+        const sourceContext = candidate.renderingAnchor.parentElement?.textContent ?? candidate.parserInput;
+        const normalizedRaw = candidate.match.raw.replace(/\s+/gu, "");
+        const semanticDuplicateFound = normalizedRaw.length > 0 &&
+          sourceContext.replace(/\s+/gu, "").split(normalizedRaw).length > 2;
+        const conversionState: MatchPipelineDiagnostic["conversionState"] =
+          !candidate.sourceNodes.every((sourceNode) => sourceNode.isConnected)
+            ? "disconnected"
+            : renderedBadge?.isConnected
+              ? "converted"
+              : settings && candidate.match.currency !== settings.targetCurrency && rates?.[candidate.match.currency] === undefined
+                ? "failed"
+                : "pending";
 
         return {
+          candidateEpoch: epoch,
+          conversionEpoch: conversionState !== "pending" ? epoch : undefined,
+          renderEpoch: renderedBadge?.isConnected ? epoch : undefined,
+          conversionState,
+          sourceVisibilityClassification: candidate.sourceNodes
+            .map(classifyCurrencySourceVisibility)
+            .find((classification) => classification !== "visible-render-source") ?? "visible-render-source",
+          ariaHiddenAncestorPresent: candidate.sourceNodes.some((sourceNode) =>
+            sourceNode.parentElement?.closest('[aria-hidden="true"]') !== null
+          ),
+          semanticDuplicateFound,
           parserInput: candidate.parserInput,
           rawMatch: candidate.match.raw,
           start: candidate.match.start,
@@ -363,6 +437,11 @@ async function collectTextNodeDiagnostics(
               : "(no parent)",
             combinedStart: fragment.combinedStart,
             combinedEnd: fragment.combinedEnd,
+            parserStart: fragment.parserStart,
+            parserEnd: fragment.parserEnd,
+            boundaryBefore: fragment.boundaryBefore.kind,
+            boundaryAfter: fragment.boundaryAfter.kind,
+            safeForPriceJoinBefore: fragment.boundaryBefore.safeForPriceJoin,
           })),
           selectedRenderingAnchor: getDiagnosticSelector(candidate.renderingAnchor),
           processedMatchKey: duplicate.processedMatchKey,
@@ -458,7 +537,7 @@ async function collectTextNodeDiagnostics(
       scanSkipReason,
       splitAcrossNodes,
       siblingTextFragments,
-      parserAttempted: scanned,
+      parserAttempted: scanned || discoveryEligible,
       parserMatches,
       combinedParentText,
       combinedParentMatches,
@@ -476,7 +555,7 @@ async function collectTextNodeDiagnostics(
     };
   });
 
-  return { textNodes, events };
+  return { textNodes, events, discovery };
 }
 
 function buildSelectedElementDiagnostic(element: HTMLElement, events: DiagnosticEvent[]): SelectedElementDiagnostic {
@@ -517,8 +596,51 @@ async function captureReport(
   selectedElement?: HTMLElement
 ): Promise<PageDiagnosticReport> {
   const root = selectedElement ?? document.body;
-  const priceLikeElements = collectPriceLikeElements(root);
-  const { textNodes, events } = await collectTextNodeDiagnostics(root, settings);
+  const { textNodes, events, discovery } = await collectTextNodeDiagnostics(root, settings);
+  const domMatches = discovery.matches;
+  const priceLikeElements = collectPriceLikeElements(root, discovery);
+  const directTextParserMatches = domMatches.filter(
+    (match) => match.scanKind === "direct" && match.clusterIndex === undefined
+  ).length;
+  const splitTextParserMatches = domMatches.filter(
+    (match) => match.scanKind === "combined-inline" && match.clusterIndex === undefined
+  ).length;
+  const clusterExplicitMatches = domMatches.filter(
+    (match) => match.currencyOrigin === "explicit" && match.clusterIndex !== undefined
+  ).length;
+  const clusterInferredMatches = domMatches.filter(
+    (match) => match.currencyOrigin === "inferred"
+  ).length;
+  const directParserResults = textNodes.reduce(
+    (total, item) => total + item.parserMatches.length,
+    0
+  );
+  const constructedDirectMatches = domMatches.filter(
+    (match) => match.scanKind === "direct"
+  ).length;
+  const candidateConstructionFailures = Math.max(
+    0,
+    directParserResults - constructedDirectMatches
+  );
+  const { rejectedParserMatches } = getCurrencyDomDiscoveryCounters();
+  const canonicalCandidates = getCanonicalizationDiagnostics().length;
+  const productionDebugEvents = getDebugEvents();
+  const { convertedCandidates, rendererRejectedCandidates } =
+    getCurrencyRenderAccounting();
+  const visibleAcceptedMatchesWithoutCandidate = priceLikeElements.reduce(
+    (total, element) => total + element.discoveryRecords.filter((record) =>
+      record.match && !record.candidateId && !record.rejectionReason
+    ).length,
+    0
+  );
+  const renderedBadges = document.querySelectorAll('[data-ehinium-badge="true"]').length;
+  const conversionFailedCandidates = productionDebugEvents.filter((event) =>
+    event.type === "error" && event.sourceCurrency !== undefined
+  ).length;
+  const conversionPendingCandidates = Math.max(
+    0,
+    canonicalCandidates - convertedCandidates - conversionFailedCandidates
+  );
   const report: PageDiagnosticReport = {
     schema: "ehinium-page-diagnostics/v2",
     scope,
@@ -532,20 +654,31 @@ async function captureReport(
       nonEmptyTextNodeCount: textNodes.length,
       scannedTextNodeCount: textNodes.filter((item) => item.scanned).length,
       skippedTextNodeCount: textNodes.filter((item) => !item.scanned).length,
-      parserMatchCount: textNodes.reduce((total, item) => total + item.matchDiagnostics.length, 0),
+      parserMatchCount: domMatches.length,
       splitPriceCandidateCount: textNodes.filter((item) => item.splitAcrossNodes).length,
+      directTextParserMatches,
+      splitTextParserMatches,
+      clusterExplicitMatches,
+      clusterInferredMatches,
+      rejectedParserMatches,
+      candidateConstructionFailures,
+      canonicalCandidates,
+      convertedCandidates,
+      conversionPendingCandidates,
+      conversionFailedCandidates,
+      rendererRejectedCandidates,
+      staleEpochCandidates: 0,
+      visibleAcceptedMatchesWithoutCandidate,
+      renderedBadges,
       diagnosticEventCount: events.length,
     },
     priceLikeElements,
     textNodes,
     selectedElement: selectedElement ? buildSelectedElementDiagnostic(selectedElement, events) : undefined,
     diagnosticEvents: events,
-    productionDebugEvents: getDebugEvents(),
+    productionDebugEvents,
     mutationBatches: getMutationBatchDiagnostics(),
     badgeVisibility: getBadgeVisibilityDiagnostics(),
-    renderLifecycles: getRenderLifecycleDiagnostics(),
-    overlayPlacements: getOverlayPlacementDiagnostics(),
-    overlayPlacementGroups: getOverlayPlacementGroupDiagnostics(),
     candidateDiscovery: getCandidateDiscoveryDiagnostics(),
     canonicalization: getCanonicalizationDiagnostics(),
     visualSourceReconciliation: getVisualSourceReconciliationDiagnostics(),

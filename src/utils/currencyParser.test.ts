@@ -126,6 +126,65 @@ expectSingleCurrencyMatch("۱۰۰۰ تومان", { amount: 1000, currency: "IRT"
 expectSingleCurrencyMatch("ریال ١٠٠٠٠", { amount: 10000, currency: "IRR" });
 expectSingleCurrencyMatch("١٠٠٠٠ ریال", { amount: 10000, currency: "IRR" });
 
+for (const [text, amount, currency] of [
+  ["۲۹۹٫۸۰۰٫۰۰۰ تومان", 299800000, "IRT"],
+  ["۳۹۲٫۱۴۰٫۰۰۰ تومان", 392140000, "IRT"],
+  ["۲۹۹٬۸۰۰٬۰۰۰ تومان", 299800000, "IRT"],
+  ["۲۹۹.۸۰۰.۰۰۰ تومان", 299800000, "IRT"],
+  ["299,800,000 تومان", 299800000, "IRT"],
+  ["299 800 000 تومان", 299800000, "IRT"],
+  ["299\u00a0800\u00a0000 تومان", 299800000, "IRT"],
+  ["299\u202f800\u202f000 تومان", 299800000, "IRT"],
+  ["٢٩٩٫٨٠٠٫٠٠٠ تومان", 299800000, "IRT"],
+  ["۲۹۹٫۸۰۰٫۰۰۰ IRT", 299800000, "IRT"],
+  ["۲۹۹٫۸۰۰٫۰۰۰ IRR", 299800000, "IRR"],
+  ["69,448,000تومان", 69448000, "IRT"],
+  ["۶۹,۴۴۸,۰۰۰تومان", 69448000, "IRT"],
+  ["٥٤,٣٣٥,٠٠٠تومن", 54335000, "IRT"],
+  ["۵۴,۳۳۵,۰۰۰تومن", 54335000, "IRT"],
+  ["۱,۰۰۰,۰۰۰ریال", 1000000, "IRR"],
+  ["20,000,000IRT", 20000000, "IRT"],
+  ["20,000,000TMN", 20000000, "IRT"],
+  ["20,000,000Toman", 20000000, "IRT"],
+  ["20,000,000Tomans", 20000000, "IRT"],
+  ["10,000,000IRR", 10000000, "IRR"],
+  ["10,000,000Rial", 10000000, "IRR"],
+  ["10,000,000Rials", 10000000, "IRR"],
+  ["۱۷,۳۶۲,۰۰۰ تومانی", 17362000, "IRT"],
+  ["۲۰۰,۰۰۰ ریالی", 200000, "IRR"],
+  ["۶۹,۴۴۸,۰۰۰\u200cتومان", 69448000, "IRT"],
+  ["۶۹,۴۴۸,۰۰۰\u200fتومان", 69448000, "IRT"],
+] as const) {
+  expectSingleCurrencyMatch(text, { amount, currency });
+}
+
+expectCurrencyMatches("6,950,000 تومان 7% 7,450,000", [
+  { raw: "6,950,000 تومان", amount: 6950000, currency: "IRT" },
+]);
+expectCurrencyMatches("71,767,000 3%69,448,000تومان", [
+  { raw: "69,448,000تومان", amount: 69448000, currency: "IRT" },
+]);
+expectCurrencyMatches("7,889,000 تومان4,733,400 تومان40%", [
+  { raw: "7,889,000 تومان", amount: 7889000, currency: "IRT" },
+  { raw: "4,733,400 تومان", amount: 4733400, currency: "IRT" },
+]);
+
+for (const percentageFalsePositive of [
+  "تومان7%",
+  "تومان 7%",
+  "7% تومان",
+]) {
+  expectCurrencies(percentageFalsePositive, []);
+}
+
+for (const malformedIranianAmount of [
+  "۲۹۹٫۸۰٫۰۰۰ تومان",
+  "۲۹۹٫٫۸۰۰ تومان",
+  "۲۹۹٬۸۰٬۰۰۰ تومان",
+]) {
+  expectCurrencies(malformedIranianAmount, []);
+}
+
 for (const identifier of ["تومان", "تومن"] as const) {
   for (const decoration of ["ء", "ءء", "ءءء", "ءءءءء"] as const) {
     const decorated = `${identifier}${decoration}`;
@@ -164,7 +223,6 @@ for (const falsePositive of [
   "ریالی ۱۰۰۰۰",
   "اریال ۱۰۰۰۰",
   "TMN123",
-  "123TMN",
   "T 1000",
   "ت ۱۰۰۰",
   "توم ۱۰۰۰",

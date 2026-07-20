@@ -16,6 +16,10 @@ import { debugLog, type DebugEvent } from "./debug";
 import { renderConversions, type RenderConversionOptions } from "./domRenderer";
 import type { ScanRequest } from "./scanScheduler";
 import { collectTextNodesForScan } from "./scanRoots";
+import {
+  discoverCurrencyMatchesInRoots,
+  type CurrencyDomMatch,
+} from "./currencyDomMatches";
 import { detectGroupedPricesInRoots } from "./groupedPriceDetector";
 import { incrementPerfCounter, measurePerf, measurePerfAsync } from "./perfDiagnostics";
 
@@ -73,6 +77,7 @@ export function renderCurrencyConversionsOnly(
   settings: UserSettings,
   rates: ExchangeRates | Map<string, ExchangeRates>,
   scanRoots?: readonly Node[],
+  currencyDomMatches?: readonly CurrencyDomMatch[],
   render: ConversionScanDependencies["renderConversions"] = renderConversions
 ): number {
   return render(textNodes, {
@@ -80,6 +85,7 @@ export function renderCurrencyConversionsOnly(
     renderCurrencies: true,
     renderUnits: false,
     scanRoots,
+    currencyDomMatches,
     convertAmount(match: CurrencyMatch) {
       const matchRates = rates instanceof Map ? rates.get(match.currency) : rates;
 
@@ -99,6 +105,7 @@ export function renderCurrencyConversionsOnly(
 
 function discoverSourceCurrencies(
   textNodes: readonly Text[],
+  domMatches: readonly CurrencyDomMatch[],
   groupedCurrencies: readonly { currency: string }[],
   targetCurrency: string
 ): Set<string> {
@@ -106,9 +113,13 @@ function discoverSourceCurrencies(
 
   for (const node of textNodes) {
     for (const match of parseCurrencies(node.textContent ?? "")) {
-      if (match.currency !== targetCurrency) {
-        sourceCurrencies.add(match.currency);
-      }
+      if (match.currency !== targetCurrency) sourceCurrencies.add(match.currency);
+    }
+  }
+
+  for (const candidate of domMatches) {
+    if (candidate.match.currency !== targetCurrency) {
+      sourceCurrencies.add(candidate.match.currency);
     }
   }
 
@@ -146,11 +157,14 @@ export async function scanConversionRoots(
     settings.converterMode === "units"
       ? []
       : detectGroupedPricesInRoots(roots);
+  const domCurrencyCandidates = settings.converterMode === "units"
+    ? []
+    : discoverCurrencyMatchesInRoots(roots, { candidateNodes: textNodes }).matches;
   const hasGroupedCurrencyCandidates =
     textNodes.length === 0 && groupedCurrencyCandidates.length > 0;
   let renderedCount = 0;
 
-  if (textNodes.length === 0 && !hasGroupedCurrencyCandidates) {
+  if (textNodes.length === 0 && !hasGroupedCurrencyCandidates && domCurrencyCandidates.length === 0) {
     writeDebug({
       type: "scan:skipped",
       reason: "No eligible text nodes",
@@ -180,6 +194,7 @@ export async function scanConversionRoots(
 
   const sourceCurrencies = discoverSourceCurrencies(
     textNodes,
+    domCurrencyCandidates,
     groupedCurrencyCandidates,
     settings.targetCurrency
   );
@@ -265,6 +280,7 @@ export async function scanConversionRoots(
       settings,
       ratesBySource,
       roots,
+      domCurrencyCandidates,
       render
     );
   renderedCount += perfDiagnosticsEnabled

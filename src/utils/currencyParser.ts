@@ -1,6 +1,8 @@
 import { fiatCurrencies } from "../data/currencies";
 import { normalizeNumberToken } from "./numberNormalizer";
 
+export const CURRENCY_SAFE_FRAGMENT_BOUNDARY = "\ue000";
+
 export type CurrencyMatch = {
   raw: string;
   amount: number;
@@ -13,6 +15,7 @@ export type CurrencyMatch = {
 
 type IndexedCurrencyMatch = CurrencyMatch & {
   specificity: number;
+  directionPriority: number;
 };
 
 export type CurrencyIdentifierSupport = {
@@ -35,8 +38,17 @@ const amountPattern =
   `${digitPattern}{1,3}(?:${groupingSeparatorPattern}${digitPattern}{3})+` +
   `(?:${decimalSeparatorPattern}${digitPattern}{1,2})?|${digitPattern}+` +
   `(?:${decimalSeparatorPattern}${digitPattern}+)?)`;
-const optionalSpacePattern = "[\\s\\u00a0\\u202f\\u2009]*";
-const requiredSpacePattern = "[\\s\\u00a0\\u202f\\u2009]+";
+const iranianGroupingSeparatorPattern = "[ ,.\\u00a0\\u202f\\u2009'’٬٫]";
+const iranianAmountPattern =
+  `[+-]?(?:${indianGroupedAmountPattern}|${leadingDecimalAmountPattern}|` +
+  `${digitPattern}{1,3}(?:${iranianGroupingSeparatorPattern}${digitPattern}{3})+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}{1,2})?|${digitPattern}+` +
+  `(?:${decimalSeparatorPattern}${digitPattern}+)?)`;
+const optionalSpacePattern = `[\\s\\u00a0\\u202f\\u2009${CURRENCY_SAFE_FRAGMENT_BOUNDARY}]*`;
+const iranianGlueCharacterPattern =
+  `[\\s\\u00a0\\u202f\\u2009\\u200c-\\u200f\\u202a-\\u202e\\u2066-\\u2069${CURRENCY_SAFE_FRAGMENT_BOUNDARY}]`;
+const optionalIranianGluePattern = `${iranianGlueCharacterPattern}*`;
+const requiredIranianGluePattern = `${iranianGlueCharacterPattern}+`;
 const numericStartBoundaryPattern =
   `(?<![\\p{L}\\p{N}_-])(?<!${decimalSeparatorPattern})` +
   `(?<!${digitPattern}${groupingSeparatorPattern})`;
@@ -48,6 +60,10 @@ const currencyByCode = new Map(
 const identifierCurrencies = new Map<string, Set<string>>();
 const iranianCurrencyCodes = new Set(["IRT", "IRR"]);
 const iranianIdentifierToCurrency = new Map<string, string>();
+const iranianInflectedSuffixes = new Map<string, string>([
+  ["تومانی", "IRT"],
+  ["ریالی", "IRR"],
+]);
 
 function normalizeIranianIdentifierKey(identifier: string): string {
   return identifier.toLocaleLowerCase("en-US");
@@ -67,6 +83,10 @@ for (const currency of fiatCurrencies) {
       );
     }
   }
+}
+
+for (const [identifier, currency] of iranianInflectedSuffixes) {
+  iranianIdentifierToCurrency.set(identifier, currency);
 }
 
 // Bare symbols are inherently ambiguous. These conventional defaults preserve
@@ -126,7 +146,10 @@ for (const [symbol, codes] of identifierCurrencies) {
   }
 }
 
-const codePattern = createAlternation([...currencyByCode.keys()]);
+const codePattern = createAlternation(
+  [...currencyByCode.keys()].filter((code) => !iranianCurrencyCodes.has(code))
+);
+const iranianCodePattern = createAlternation([...iranianCurrencyCodes]);
 const iranianIdentifierKeys = new Set(iranianIdentifierToCurrency.keys());
 const isIranianIdentifier = (identifier: string): boolean =>
   iranianIdentifierKeys.has(normalizeIranianIdentifierKey(identifier));
@@ -138,22 +161,29 @@ const suffixSymbolPattern = createAlternation(
     (identifier) => !isIranianIdentifier(identifier)
   )
 );
-const iranianAliasPattern = createAlternation(
+const iranianAliasPrefixPattern = createAlternation(
   [...identifierCurrencies.keys()].filter(
     (identifier) =>
       isIranianIdentifier(identifier) && !currencyByCode.has(identifier)
   )
 );
+const iranianAliasSuffixPattern = createAlternation(
+  [...iranianIdentifierToCurrency.keys()].filter(
+    (identifier) => !currencyByCode.has(identifier)
+  )
+);
 
 const codePrefixRegex = createPrefixRegex(codePattern, "giu");
 const codeSuffixRegex = createSuffixRegex(codePattern, "giu");
+const iranianCodePrefixRegex = createIranianCodePrefixRegex(iranianCodePattern);
+const iranianCodeSuffixRegex = createIranianCodeSuffixRegex(iranianCodePattern);
 const symbolPrefixRegex = createPrefixRegex(symbolPattern, "gu");
 const symbolSuffixRegex = createSuffixRegex(suffixSymbolPattern, "gu");
 const iranianAliasPrefixRegex = createIranianAliasPrefixRegex(
-  iranianAliasPattern
+  iranianAliasPrefixPattern
 );
 const iranianAliasSuffixRegex = createIranianAliasSuffixRegex(
-  iranianAliasPattern
+  iranianAliasSuffixPattern
 );
 
 /**
@@ -220,8 +250,26 @@ function createSuffixRegex(identifierPattern: string, flags: string): RegExp {
 function createIranianAliasPrefixRegex(identifierPattern: string): RegExp {
   return new RegExp(
     `(?<![\\p{L}\\p{N}_-])` +
-      `((?:${identifierPattern})(?:ء+)?)${requiredSpacePattern}(${amountPattern})` +
+      `((?:${identifierPattern})(?:ء+)?)${requiredIranianGluePattern}(${iranianAmountPattern})` +
       `(?![\\p{L}\\p{N}_-]|${decimalSeparatorPattern}${digitPattern})`,
+    "giu"
+  );
+}
+
+function createIranianCodePrefixRegex(identifierPattern: string): RegExp {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}_-])` +
+      `(${identifierPattern})${optionalIranianGluePattern}(${iranianAmountPattern})` +
+      `(?![\\p{L}\\p{N}_-]|${decimalSeparatorPattern}${digitPattern})`,
+    "giu"
+  );
+}
+
+function createIranianCodeSuffixRegex(identifierPattern: string): RegExp {
+  return new RegExp(
+    numericStartBoundaryPattern +
+      `(${iranianAmountPattern})${optionalIranianGluePattern}(${identifierPattern})` +
+      `(?![\\p{L}_-])`,
     "giu"
   );
 }
@@ -229,10 +277,27 @@ function createIranianAliasPrefixRegex(identifierPattern: string): RegExp {
 function createIranianAliasSuffixRegex(identifierPattern: string): RegExp {
   return new RegExp(
     numericStartBoundaryPattern +
-      `(${amountPattern})${requiredSpacePattern}((?:${identifierPattern})(?:ء+)?)` +
-      `(?![\\p{L}\\p{N}_-])` +
-      `(?!${optionalSpacePattern}ء)`,
+      `(${iranianAmountPattern})${optionalIranianGluePattern}((?:${identifierPattern})(?:ء+)?)` +
+      `(?![\\p{L}_-])` +
+      `(?!${optionalIranianGluePattern}ء)`,
     "giu"
+  );
+}
+
+function isUnsafeIranianPrefixContext(
+  text: string,
+  matchStart: number,
+  matchEnd: number
+): boolean {
+  const before = text.slice(0, matchStart);
+  const after = text.slice(matchEnd);
+
+  return (
+    new RegExp(
+      `(?:${digitPattern}|[%٪]|[,.٬٫])${optionalIranianGluePattern}$`,
+      "u"
+    ).test(before) ||
+    new RegExp(`^${optionalIranianGluePattern}[%٪]`, "u").test(after)
   );
 }
 
@@ -243,7 +308,8 @@ function collectMatches(
   amountIndex: number,
   resolveCurrency: (identifier: string) => string | undefined,
   tokenType: CurrencyMatch["tokenType"],
-  requireFullTextForNonCanonicalIdentifier = false
+  requireFullTextForNonCanonicalIdentifier = false,
+  direction: "prefix" | "suffix" = "prefix"
 ): IndexedCurrencyMatch[] {
   const matches: IndexedCurrencyMatch[] = [];
 
@@ -273,9 +339,17 @@ function collectMatches(
 
     const matchIndex = match.index;
     const matchEnd = matchIndex + match[0].length;
+    if (
+      direction === "prefix" &&
+      iranianCurrencyCodes.has(definition.code) &&
+      isUnsafeIranianPrefixContext(text, matchIndex, matchEnd)
+    ) {
+      continue;
+    }
     const isAccountingNegative =
       text[matchIndex - 1] === "(" && text[matchEnd] === ")";
-    const raw = isAccountingNegative ? `(${match[0]})` : match[0];
+    const matchedRaw = match[0].replaceAll(CURRENCY_SAFE_FRAGMENT_BOUNDARY, "");
+    const raw = isAccountingNegative ? `(${matchedRaw})` : matchedRaw;
     const start = isAccountingNegative ? matchIndex - 1 : matchIndex;
     const amount = isAccountingNegative ? -Math.abs(parsedAmount) : parsedAmount;
     const identifierSupport = getCurrencyIdentifierSupport(identifier);
@@ -291,10 +365,11 @@ function collectMatches(
       amount,
       currency: definition.code,
       start,
-      end: start + raw.length,
+      end: isAccountingNegative ? matchEnd + 1 : matchEnd,
       tokenType,
       confidence,
       specificity: identifier.length,
+      directionPriority: direction === "suffix" ? 2 : 1,
     });
   }
 
@@ -318,19 +393,23 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
     );
   };
   const codeMatches = [
-    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode, "iso", true),
-    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode, "iso", true),
+    ...collectMatches(text, codePrefixRegex, 1, 2, resolveCode, "iso", true, "prefix"),
+    ...collectMatches(text, codeSuffixRegex, 2, 1, resolveCode, "iso", true, "suffix"),
+    ...collectMatches(text, iranianCodePrefixRegex, 1, 2, resolveCode, "iso", true, "prefix"),
+    ...collectMatches(text, iranianCodeSuffixRegex, 2, 1, resolveCode, "iso", true, "suffix"),
   ];
   const symbolMatches = [
-    ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol, "symbol"),
-    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSuffixSymbol, "symbol"),
+    ...collectMatches(text, symbolPrefixRegex, 1, 2, resolveSymbol, "symbol", false, "prefix"),
+    ...collectMatches(text, symbolSuffixRegex, 2, 1, resolveSuffixSymbol, "symbol", false, "suffix"),
     ...collectMatches(
       text,
       iranianAliasPrefixRegex,
       1,
       2,
       resolveIranianAlias,
-      "symbol"
+      "symbol",
+      false,
+      "prefix"
     ),
     ...collectMatches(
       text,
@@ -338,7 +417,9 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
       2,
       1,
       resolveIranianAlias,
-      "symbol"
+      "symbol",
+      false,
+      "suffix"
     ),
   ];
   const uniqueMatches = new Map<string, IndexedCurrencyMatch>();
@@ -356,6 +437,7 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
   for (const candidate of [...uniqueMatches.values()].sort(
     (left, right) =>
       left.start - right.start ||
+      right.directionPriority - left.directionPriority ||
       (right.end - right.start) - (left.end - left.start) ||
       right.specificity - left.specificity ||
       right.confidence - left.confidence
@@ -374,9 +456,13 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
     const candidateSpan = candidate.end - candidate.start;
     const existingSpan = existing.end - existing.start;
     if (
-      candidateSpan > existingSpan ||
-      (candidateSpan === existingSpan && candidate.specificity > existing.specificity) ||
-      (candidateSpan === existingSpan &&
+      candidate.directionPriority > existing.directionPriority ||
+      (candidate.directionPriority === existing.directionPriority &&
+        candidateSpan > existingSpan) ||
+      (candidate.directionPriority === existing.directionPriority &&
+        candidateSpan === existingSpan && candidate.specificity > existing.specificity) ||
+      (candidate.directionPriority === existing.directionPriority &&
+        candidateSpan === existingSpan &&
         candidate.specificity === existing.specificity &&
         candidate.confidence > existing.confidence)
     ) {
@@ -384,7 +470,7 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
     }
   }
 
-  return resolvedMatches
+  const finalMatches = resolvedMatches
     .sort((left, right) => left.start - right.start)
     .map((match) => ({
       raw: match.raw,
@@ -395,4 +481,25 @@ export function parseCurrencies(text: string): CurrencyMatch[] {
       tokenType: match.tokenType,
       confidence: match.confidence,
     }));
+  const sequentialMatches = finalMatches.flatMap((match) => {
+    if (
+      !iranianCurrencyCodes.has(match.currency) ||
+      !/^[\s(]*[+-]?[0-9٠-٩۰-۹]/u.test(match.raw) ||
+      !new RegExp(`^${digitPattern}`, "u").test(text.slice(match.end))
+    ) return [];
+    return parseCurrencies(text.slice(match.end)).map((following) => ({
+      ...following,
+      start: following.start + match.end,
+      end: following.end + match.end,
+    }));
+  });
+
+  return [...finalMatches, ...sequentialMatches]
+    .filter((match, index, all) =>
+      all.findIndex((candidate) =>
+        candidate.start === match.start && candidate.end === match.end &&
+        candidate.currency === match.currency && candidate.amount === match.amount
+      ) === index
+    )
+    .sort((left, right) => left.start - right.start);
 }

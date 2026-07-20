@@ -42,6 +42,7 @@ It is designed to stay lightweight, readable, and unobtrusive while supporting r
 - **System, light, and dark themes**
 - **Keyboard-accessible controls**
 - **Cached exchange rates** with provider fallback
+- **Iranian Toman (`IRT`) conversion** for automatic and manual workflows
 - **Manifest V3 architecture**
 - **No remote UI code or runtime CDN dependencies**
 
@@ -91,12 +92,30 @@ The renderer includes safeguards for:
 
 ## Exchange-rate providers
 
-Ehinium Universal Converter uses a fallback strategy:
+Global currencies use this fallback strategy:
 
 1. **Frankfurter API** as the primary provider
 2. **Fawaz Ahmed Currency API** as the fallback provider
 
-Rates are cached locally to reduce unnecessary requests and keep conversions responsive.
+Iranian market conversions use the **Ehinium rates API** as an independent
+USD/IRT bridge. Global conversion remains available if the Iranian bridge is
+unavailable, and a cached Iranian rate may remain temporarily usable when a
+refresh fails. Direct IRT ↔ IRR conversion uses the fixed local relationship
+and does not make a live provider request.
+
+### Iranian currency behavior
+
+- IRT (Iranian Toman) is the selectable Iranian output currency.
+- IRR remains accepted as input, including Rial, Rials, ریال, and supported decorated forms.
+- Toman inputs include IRT, TMN, Toman, تومان, and supported decorated forms.
+- Iranian output uses grouped Latin digits with the code after the amount, for example `20,000,000 IRT`.
+
+Supported flows include:
+
+- `100 USD → IRT`
+- `100 EUR → IRT`
+- `1,000,000 IRR → IRT`
+- `1,000,000 ریال → IRT`
 
 ## Privacy
 
@@ -129,16 +148,26 @@ cd ehinium-universal-converter
 npm install
 ```
 
-3. Build the extension:
+3. For a local production build with Iranian rate access, create `.env.local`:
+
+```dotenv
+EUC_IRANIAN_RATES_TOKEN=your_token
+```
+
+A token compiled into a browser extension is extractable and must not be
+treated as a strong secret. Do not commit `.env.local` or place administrative
+credentials in the extension build.
+
+4. Build the extension:
 
 ```bash
 npm run build
 ```
 
-4. Open `chrome://extensions`.
-5. Enable **Developer mode**.
-6. Select **Load unpacked**.
-7. Choose the generated `dist` directory.
+5. Open `chrome://extensions`.
+6. Enable **Developer mode**.
+7. Select **Load unpacked**.
+8. Choose the generated `dist` directory.
 
 ## Development
 
@@ -153,8 +182,9 @@ npm run build
 ```bash
 npm run dev
 npm test
-npm run lint
 npm run build
+npm run test:perf
+npm run lint
 npm run build:release
 npm run validate:release
 ```
@@ -189,6 +219,10 @@ src/
 
 ## Testing
 
+Tests are standalone TypeScript scripts executed with `tsx`; the project does
+not use Vitest. The normal suite includes the Iranian provider, cache,
+orchestration, messaging, conversion, formatting, and status integrations.
+
 The project includes regression coverage for:
 
 - currency parsing and conversion
@@ -207,6 +241,8 @@ Run the complete suite:
 
 ```bash
 npm test
+npm run build
+npm run test:perf
 ```
 
 ## Roadmap

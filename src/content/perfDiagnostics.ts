@@ -123,7 +123,8 @@ const MAX_SNAPSHOTS = 50;
 const MAX_STRING = 160;
 const COUNTER_NAMES = [
   "totalDomNodesVisited", "totalTextNodesVisited", "textNodesScanned", "textNodesSkipped", "priceLikeElementsInspected",
-  "parserCalls", "parserMatches", "rejectedParserMatches", "splitPriceCandidates", "combinedParentCandidates", "canonicalCandidates",
+  "parserCalls", "parserMatches", "directTextParserMatches", "splitTextParserMatches", "clusterExplicitMatches", "clusterInferredMatches",
+  "rejectedParserMatches", "candidateConstructionFailures", "splitPriceCandidates", "combinedParentCandidates", "canonicalCandidates", "renderedBadges",
   "canonicalGroups", "candidatesDiscardedAsDuplicates", "inlineBadgeAttempts", "inlineBadgesInserted", "inlineBadgesUpdated",
   "overlayBadgesInserted", "overlayBadgesUpdated", "staleBadgesRemoved", "duplicateBadgesRemoved", "badgeMigrations",
   "shadowBadgeHostsCreated", "sourceReplacementsRebound", "externallyRemovedBadges", "fallbackActivations", "mutationCallbackCount",

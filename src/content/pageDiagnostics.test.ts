@@ -94,6 +94,54 @@ const markdown = formatPageDiagnosticMarkdown(pageReport);
 
 expect(pageReport.scope === "page", "Page capture should use page scope");
 expect(markdown.includes("## Text-node pipeline"), "Markdown export should include pipeline diagnostics");
+expect(markdown.includes("Direct text parser matches"), "Markdown export should define direct parser matches");
+expect(
+  pageReport.summary.parserMatchCount ===
+    pageReport.summary.directTextParserMatches +
+      pageReport.summary.splitTextParserMatches +
+      pageReport.summary.clusterExplicitMatches +
+      pageReport.summary.clusterInferredMatches,
+  "Accepted parser summary must equal its explicit pipeline categories"
+);
+expect(
+  pageReport.summary.visibleAcceptedMatchesWithoutCandidate === 0,
+  "Every visible accepted DOM match must have a candidate or explicit rejection"
+);
+expect(
+  [
+    pageReport.summary.conversionPendingCandidates,
+    pageReport.summary.conversionFailedCandidates,
+    pageReport.summary.staleEpochCandidates,
+  ].every((value) => Number.isInteger(value) && value >= 0),
+  "Candidate lifecycle summary counters must be explicit"
+);
+expect(
+  pageReport.textNodes.flatMap((node) => node.matchDiagnostics).every((match) =>
+    !!match.conversionState && !!match.sourceVisibilityClassification
+  ),
+  "Every production match diagnostic must include conversion and visibility state"
+);
+expect(
+  pageReport.priceLikeElements.every((element) =>
+    element.discoveryRecords.every((record) =>
+      !record.rejectionReason?.includes("outside the latest production render batch")
+    )
+  ),
+  "Diagnostics must not retain the vague outside-render-batch lifecycle state"
+);
+expect(
+  pageReport.priceLikeElements.every((element) =>
+    element.parserMatches === element.productionDomMatches ||
+    JSON.stringify(element.parserMatches) === JSON.stringify(element.productionDomMatches)
+  ),
+  "Price-like parserMatches must use shared production DOM discovery"
+);
+expect(
+  pageReport.priceLikeElements.every((element) =>
+    element.discoveryRecords.every((record) => !!record.candidateId || !!record.rejectionReason)
+  ),
+  "Every diagnostic DOM match must include a candidate id or rejection reason"
+);
 expect(
   pageReport.priceLikeElements.some((element) => element.text.includes("4.99")),
   "Split suffix price should be inspected as price-like"

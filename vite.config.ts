@@ -52,6 +52,7 @@ export default defineConfig(({ mode }) => {
           input: {
             popup: "index.html",
             options: "settings.html",
+            privacy: "privacy.html",
             background: "src/background/index.ts",
           },
           output: {

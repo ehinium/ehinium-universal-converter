@@ -10,15 +10,11 @@ import type { AnchorSafetyDiagnostic } from "../content/priceAnchor";
 import type { ReconciliationDiagnostic } from "../content/currencyMatchState";
 import type { TranslationWrapperDiagnostic } from "../content/translationLineage";
 import type {
-  OverlayPlacementDiagnostic,
-  OverlayPlacementGroupDiagnostic,
-  RenderLifecycleDiagnostic,
-} from "../content/badgeLifecycle";
-import type {
   CandidateDiscoveryDiagnostic,
   CanonicalizationDiagnostic,
   VisualSourceReconciliationDiagnostic,
 } from "../content/priceCandidatePipeline";
+import type { DomCurrencyDiscoveryOutcome } from "../content/currencyDomMatches";
 import type {
   BadgeEncapsulationDiagnostic,
   TranslationProtectionDiagnostic,
@@ -112,6 +108,13 @@ export type TextNodeDiagnostic = {
 };
 
 export type MatchPipelineDiagnostic = {
+  candidateEpoch?: string;
+  conversionEpoch?: string;
+  renderEpoch?: string;
+  conversionState: "pending" | "converted" | "failed" | "stale-epoch" | "disconnected";
+  sourceVisibilityClassification: "visible-render-source" | "hidden-semantic-duplicate" | "truly-hidden" | "disconnected";
+  ariaHiddenAncestorPresent: boolean;
+  semanticDuplicateFound: boolean;
   parserInput: string;
   rawMatch: string;
   start: number;
@@ -123,6 +126,11 @@ export type MatchPipelineDiagnostic = {
     sourceElement: string;
     combinedStart: number;
     combinedEnd: number;
+    parserStart?: number;
+    parserEnd?: number;
+    boundaryBefore?: string;
+    boundaryAfter?: string;
+    safeForPriceJoinBefore?: boolean;
   }>;
   selectedRenderingAnchor: string;
   processedMatchKey: string;
@@ -165,6 +173,14 @@ export type PriceLikeElementDiagnostic = {
   splitAcrossNodes: boolean;
   visible: boolean;
   parserMatches: CurrencyMatch[];
+  rawTextContentParserMatches: CurrencyMatch[];
+  productionDomMatches: CurrencyMatch[];
+  discoveryRecords: Array<{
+    discoveryOutcome: DomCurrencyDiscoveryOutcome;
+    candidateId?: string;
+    match?: CurrencyMatch;
+    rejectionReason?: string;
+  }>;
 };
 
 export type PageDiagnosticReport = {
@@ -182,6 +198,20 @@ export type PageDiagnosticReport = {
     skippedTextNodeCount: number;
     parserMatchCount: number;
     splitPriceCandidateCount: number;
+    directTextParserMatches: number;
+    splitTextParserMatches: number;
+    clusterExplicitMatches: number;
+    clusterInferredMatches: number;
+    rejectedParserMatches: number;
+    candidateConstructionFailures: number;
+    canonicalCandidates: number;
+    convertedCandidates: number;
+    conversionPendingCandidates: number;
+    conversionFailedCandidates: number;
+    rendererRejectedCandidates: number;
+    staleEpochCandidates: number;
+    visibleAcceptedMatchesWithoutCandidate: number;
+    renderedBadges: number;
     diagnosticEventCount: number;
   };
   priceLikeElements: PriceLikeElementDiagnostic[];
@@ -191,9 +221,6 @@ export type PageDiagnosticReport = {
   productionDebugEvents: DebugEvent[];
   mutationBatches: MutationBatchDiagnostic[];
   badgeVisibility: BadgeVisibilityDiagnostic[];
-  renderLifecycles: RenderLifecycleDiagnostic[];
-  overlayPlacements: OverlayPlacementDiagnostic[];
-  overlayPlacementGroups: OverlayPlacementGroupDiagnostic[];
   candidateDiscovery: CandidateDiscoveryDiagnostic[];
   canonicalization: CanonicalizationDiagnostic[];
   visualSourceReconciliation: VisualSourceReconciliationDiagnostic[];

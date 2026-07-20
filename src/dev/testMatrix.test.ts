@@ -123,12 +123,12 @@ for (const testCase of matrix.filter(
   (item) => item.expectedBehavior === "convert"
 )) {
   const matches = parseCurrencies(testCase.sourceText);
-  const isAttachedIranianAlias =
+  const isAttachedIranianPrefixAlias =
     (testCase.currency === "IRT" || testCase.currency === "IRR") &&
-    (testCase.formatId === "symbol-prefix" ||
-      testCase.formatId === "symbol-suffix-compact");
+    testCase.formatId === "symbol-prefix" &&
+    !testCase.sourceText.startsWith(testCase.currency);
 
-  if (isAttachedIranianAlias) {
+  if (isAttachedIranianPrefixAlias) {
     assert(
       matches.length === 0,
       `${testCase.id} must preserve Iranian alias token boundaries`

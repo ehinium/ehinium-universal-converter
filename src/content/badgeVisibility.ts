@@ -315,14 +315,12 @@ function decideVisibility(
 
 function applyVisibility(record: BadgeRecord, reason: BadgeVisibilityReason): void {
   const visible = reason === "visible";
-  const passiveOverlay = record.badge.dataset.eucOverlayBadge === "true";
   record.previousReason = record.reason;
   record.reason = reason;
   record.visible = visible;
-  record.badge.dataset.eucVisibilityReason = reason;
   record.badge.style.visibility = visible ? "" : "hidden";
-  record.badge.style.pointerEvents = passiveOverlay ? "none" : visible ? "auto" : "none";
-  record.badge.setAttribute("aria-hidden", passiveOverlay ? "true" : visible ? "false" : "true");
+  record.badge.style.pointerEvents = visible ? "auto" : "none";
+  record.badge.setAttribute("aria-hidden", visible ? "false" : "true");
 }
 
 function getDiagnosticWarnings(

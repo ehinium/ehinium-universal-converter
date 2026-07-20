@@ -39,8 +39,8 @@ import {
 } from "./groupedPriceDetector";
 import { evaluateAnchorSafety, selectPriceAnchor } from "./priceAnchor";
 import {
-  collectCurrencyDomMatches,
   collectSourceTextFragments,
+  discoverCurrencyMatchesInRoots,
   type CurrencyDomMatch,
 } from "./currencyDomMatches";
 import {
@@ -55,11 +55,6 @@ import {
   clearBadgeVisibilityRecords,
   registerBadgeVisibility,
 } from "./badgeVisibility";
-import {
-  clearBadgeLifecycles,
-  registerInlineBadgeLifecycle,
-  shouldSuppressInlineForLifecycle,
-} from "./badgeLifecycle";
 import {
   beginVisualSourceReconciliationBatch,
   canonicalizePriceCandidates,
@@ -76,6 +71,14 @@ import {
 import { incrementPerfCounter, measureSync } from "./perfDiagnostics";
 
 const PERF_DIAGNOSTICS_ENABLED = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
+let latestCurrencyRenderAccounting = {
+  convertedCandidates: 0,
+  rendererRejectedCandidates: 0,
+};
+
+export function getCurrencyRenderAccounting(): Readonly<typeof latestCurrencyRenderAccounting> {
+  return { ...latestCurrencyRenderAccounting };
+}
 
 export type RenderConversionOptions = {
   enabled: boolean;
@@ -91,6 +94,7 @@ export type RenderConversionOptions = {
   targetTemperatureUnit: TargetTemperatureUnit;
   convertAmount: (match: CurrencyMatch) => number | null;
   scanRoots?: readonly Node[];
+  currencyDomMatches?: readonly CurrencyDomMatch[];
 };
 
 const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
@@ -255,12 +259,7 @@ function getCandidateRevalidationReason(
   if (!candidate.sourceNodes.every((node) => anchor.contains(node))) return "source-not-contained";
   if (currentInput !== candidate.parserInput) return "source-text-changed";
   if (match.start < 0 || match.end > currentInput.length || match.start >= match.end) return "source-range-invalid";
-  const currentMatch = parseCurrencies(currentInput).find((parsed) =>
-    parsed.start === match.start && parsed.end === match.end
-  );
-  if (!currentMatch || currentMatch.raw !== match.raw) return "source-range-invalid";
-  if (currentMatch.currency !== match.currency) return "source-currency-changed";
-  if (currentMatch.amount !== match.amount) return "source-amount-changed";
+  if (currentInput.slice(match.start, match.end) !== match.raw) return "source-range-invalid";
   if (!targetCurrency) return "target-currency-changed";
   const safetyInput = candidate.scanKind === "direct"
     ? candidate.parserInput
@@ -490,6 +489,10 @@ export function renderConversions(
     options.renderCurrencies ?? options.converterMode !== "units";
   const shouldRenderUnits =
     options.renderUnits ?? options.converterMode !== "currencies";
+  latestCurrencyRenderAccounting = {
+    convertedCandidates: 0,
+    rendererRejectedCandidates: 0,
+  };
 
   if (shouldRenderCurrencies) {
     const groupedPrices = options.scanRoots
@@ -530,13 +533,15 @@ export function renderConversions(
     }
 
     const eligibleCurrencyNodes = nodes.filter((node) => {
-      if (getCurrencyTextNodeRenderSkipReason(node) !== null) return false;
       const groupedAncestor = node.parentElement?.closest<HTMLElement>(".a-price");
       return !groupedAncestor || !groupedPriceAnchors.has(groupedAncestor);
     });
+    const discoveryRoots = options.scanRoots ?? eligibleCurrencyNodes;
     const discoveredDomMatches = [
       ...groupedCandidates,
-      ...collectCurrencyDomMatches(eligibleCurrencyNodes),
+      ...(options.currencyDomMatches ?? discoverCurrencyMatchesInRoots(discoveryRoots, {
+        candidateNodes: eligibleCurrencyNodes,
+      }).matches),
     ];
     const discoveredCandidates = PERF_DIAGNOSTICS_ENABLED
       ? measureSync("candidate-discovery", () => discoverPriceCandidates(discoveredDomMatches, options.targetCurrency, groupedPriceAnchors))
@@ -591,9 +596,6 @@ export function renderConversions(
           );
         }
         registerBadgeVisibility(canonicalBadge, candidate.sourceElement, anchor);
-        if (!aggregateFallback && canonicalBadge.dataset.eucRenderMode !== "overlay") {
-          registerInlineBadgeLifecycle(candidate, options.targetCurrency, canonicalBadge);
-        }
         debugLog({
           type: "skip:duplicate",
           sourceCurrency: match.currency,
@@ -620,23 +622,12 @@ export function renderConversions(
         continue;
       }
 
-      if (shouldSuppressInlineForLifecycle(candidate, options.targetCurrency)) {
-        debugLog({
-          type: "skip:duplicate",
-          sourceCurrency: match.currency,
-          targetCurrency: options.targetCurrency,
-          amount: match.amount,
-          text: match.raw,
-          reason: "Portal overlay fallback already owns this unstable source",
-        });
-        continue;
-      }
-
       const placementSkipReason = getCurrencyPlacementSkipReason(
         anchor,
         options.badgeVisibility
       );
       if (placementSkipReason) {
+        latestCurrencyRenderAccounting.rendererRejectedCandidates++;
         debugLog({
           type: "skip:unsafe-placement",
           sourceCurrency: match.currency,
@@ -647,7 +638,6 @@ export function renderConversions(
         });
         continue;
       }
-
       const convertedAmount = options.convertAmount(match);
 
       if (convertedAmount === null || !Number.isFinite(convertedAmount)) {
@@ -661,6 +651,7 @@ export function renderConversions(
         });
         continue;
       }
+      latestCurrencyRenderAccounting.convertedCandidates++;
 
       const formattedAmount = formatConvertedCurrency(
         convertedAmount,
@@ -675,6 +666,7 @@ export function renderConversions(
         ? null
         : getCandidateRevalidationReason(candidate, options.targetCurrency);
       if (revalidationReason) {
+        latestCurrencyRenderAccounting.rendererRejectedCandidates++;
         debugLog({
           type: "skip:unsafe-placement",
           sourceCurrency: match.currency,
@@ -719,6 +711,7 @@ export function renderConversions(
           ? insertTextBadgeIfNearby(candidate.sourceNodes[0], anchor, badge)
           : insertGroupedBadgeIfNearby(anchor, badge);
       if (!inserted) {
+        latestCurrencyRenderAccounting.rendererRejectedCandidates++;
         debugLog({
           type: "skip:unsafe-placement",
           sourceCurrency: match.currency,
@@ -739,9 +732,6 @@ export function renderConversions(
       );
       registerBadgeVisibility(badge, candidate.sourceElement, anchor);
       registerCanonicalVisualSource(priceCandidate, badge);
-      if (!aggregateFallback) {
-        registerInlineBadgeLifecycle(candidate, options.targetCurrency, badge);
-      }
 
       debugLog({
         type: "render:badge",
@@ -764,7 +754,6 @@ export function renderConversions(
 
 export function resetRenderedConversions(root: ParentNode): void {
   clearVisualSourceRegistry(root);
-  clearBadgeLifecycles(root);
   clearBadgeVisibilityRecords(root);
   removeBadges(root);
   if (root === document) clearBadgeHostRegistry();

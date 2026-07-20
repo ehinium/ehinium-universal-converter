@@ -174,23 +174,6 @@ export function registerAuthoritativeBadgeHost(options: RegisterOptions): HTMLEl
   return authoritative;
 }
 
-export function transitionAuthoritativeBadgeHost(
-  previousHost: HTMLElement,
-  nextHost: HTMLElement,
-  renderMode: BadgeHostRenderMode,
-  reason: string
-): HTMLElement {
-  const sourceKey = previousHost.dataset.eucSourceKey ?? previousHost.dataset.eucCanonicalKey;
-  if (!sourceKey) return nextHost;
-  const existing = records.get(sourceKey);
-  return registerAuthoritativeBadgeHost({
-    sourceKey, badgeHost: nextHost, sourceElement: existing?.sourceElement ?? null,
-    renderMode, sourceFingerprint: existing?.sourceFingerprint,
-    amount: existing?.amount ?? undefined, sourceCurrency: existing?.sourceCurrency ?? undefined,
-    targetCurrency: existing?.targetCurrency ?? undefined, creationReason: reason, supersede: true,
-  });
-}
-
 export function reconcileBadgeHostsForKey(key: string, preferred?: HTMLElement): HTMLElement | null {
   const record = records.get(key);
   const initialHosts = hostsForKey(key);

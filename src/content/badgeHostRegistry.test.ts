@@ -8,7 +8,6 @@ import {
   reconcileAffectedBadgeHosts,
   reconcileAllBadgeHostRecords,
   registerAuthoritativeBadgeHost,
-  transitionAuthoritativeBadgeHost,
 } from "./badgeHostRegistry";
 
 const window = new Window();
@@ -73,21 +72,6 @@ reset();
   register("price-b", createBadge("$20.00", "1000 TRY → $20.00"));
   reconcileAllBadgeHostRecords();
   expectEqual(getBadgeHostCensusDiagnostic().totalDomBadgeHostCount, 2, "different canonical sources remain distinct");
-}
-
-reset();
-{
-  const inline = register("price-a");
-  const overlay = cloneProtectedBadgeHost(inline);
-  overlay.dataset.eucRenderMode = "overlay";
-  document.body.append(overlay);
-  transitionAuthoritativeBadgeHost(inline, overlay, "overlay", "Hostile DOM fallback");
-  const census = getBadgeHostCensusDiagnostic();
-  expect(!inline.isConnected, "inline host is retired during overlay transition");
-  expect(overlay.isConnected, "overlay host becomes authoritative");
-  expectEqual(census.totalDomBadgeHostCount, 1, "inline and overlay hosts are mutually exclusive");
-  expectEqual(census.totalOverlayHostCount, 1, "the remaining host is the overlay");
-  expectEqual(census.totalCompetingHostCount, 0, "no competing host remains");
 }
 
 reset();

@@ -20,7 +20,9 @@ Object.assign(globalThis, {
   document: window.document,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
+  NodeFilter: window.NodeFilter,
   Text: window.Text,
+  getComputedStyle: window.getComputedStyle.bind(window),
 });
 
 const rates: ExchangeRates = {
@@ -94,6 +96,43 @@ function expectEqual<T>(actual: T, expected: T, description: string): void {
       `${description}: expected ${String(expected)}, received ${String(actual)}`
     );
   }
+}
+
+{
+  const root = document.createElement("div");
+  root.innerHTML =
+    '<p><del aria-hidden="true"><span>33,000,000</span><span>تومان</span></del>' +
+    '<ins aria-hidden="true"><span>31,930,000</span><span>تومان</span></ins></p>';
+  document.body.append(root);
+  const visibleRect = { x: 0, y: 0, top: 0, left: 0, right: 200, bottom: 30,
+    width: 200, height: 30, toJSON: () => ({}) };
+  Object.defineProperty(window.HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => visibleRect,
+  });
+  let bridgeCalls = 0;
+  let renderedMatches = 0;
+  await scanConversionRoots(
+    { reason: "mutation", roots: [root] },
+    settings({ targetCurrency: "USD", converterMode: "currencies" }),
+    {
+      collectTextNodesForScan: async () => [],
+      requestIranianBridgeRate: async () => {
+        bridgeCalls++;
+        return iranianBridge;
+      },
+      renderConversions: (_nodes, options) => {
+        const matches = options.currencyDomMatches ?? [];
+        renderedMatches = matches.filter((candidate) =>
+          options.convertAmount(candidate.match) !== null
+        ).length;
+        return renderedMatches;
+      },
+    }
+  );
+  expectEqual(bridgeCalls, 1, "visible aria-hidden DOM candidates request bridge once");
+  expectEqual(renderedMatches, 2, "same discovered DOM candidates reach conversion renderer");
+  root.remove();
 }
 
 function createTextNode(): Text {

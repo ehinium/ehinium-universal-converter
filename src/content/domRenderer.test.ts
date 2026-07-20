@@ -12,13 +12,15 @@ import type { CurrencyMatch } from "../utils/currencyParser";
 import { getTextNodes } from "./domScanner";
 import { renderConversions } from "./domRenderer";
 import { getHoverTarget } from "./hoverRegistry";
-import { clearBadgeLifecycles } from "./badgeLifecycle";
 import { getBadgeVisibleText } from "./badgeManager";
+import { discoverCurrencyMatchesInElement } from "./currencyDomMatches";
 
 const window = new Window();
 
 Object.assign(globalThis, {
+  window,
   document: window.document,
+  DOMRect: window.DOMRect,
   localStorage: window.localStorage,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
@@ -57,7 +59,6 @@ function expectEqual<T>(actual: T, expected: T, description: string): void {
 }
 
 function createRoot(html: string): HTMLElement {
-  clearBadgeLifecycles(document);
   document.body.innerHTML = "";
 
   const root = document.createElement("div");
@@ -109,9 +110,14 @@ function render(
 {
   const root = createRoot("<span>€100</span>");
   const rendered = render(root, "USD", (match) => match.amount * 1.1);
+  const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR)!;
 
   expectEqual(rendered, 1, "normal conversion rendered count");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "normal conversion badges");
+  expectEqual(document.querySelectorAll('[data-euc-overlay-root="true"]').length, 0, "normal conversion remains in natural flow");
+  badge.dispatchEvent(new window.FocusEvent("focus") as unknown as Event);
+  expectEqual(document.querySelector<HTMLElement>('[data-ehinium-tooltip="true"]')?.style.visibility, "visible", "normal inline tooltip opens");
+  badge.dispatchEvent(new window.FocusEvent("blur") as unknown as Event);
 }
 
 {
@@ -145,9 +151,9 @@ function render(
   const badge = root.querySelector<HTMLElement>(BADGE_SELECTOR);
 
   expectEqual(rendered, 1, "linked currency rendered count");
-  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "linked currency badge count");
-  expectEqual(badge?.parentElement, link, "linked currency badge parent");
-  expectEqual(link?.childNodes[1], badge ?? null, "linked currency badge after text");
+  expectEqual(document.querySelectorAll('[data-euc-overlay-badge="true"]').length, 0, "linked currency avoids viewport overlay");
+  expectEqual(link?.querySelector(BADGE_SELECTOR), badge, "linked currency uses previous adjacent presentation");
+  expectEqual(link?.children.length, 1, "linked currency has one adjacent badge child");
   expectEqual(badge?.style.textDecoration, "none", "linked currency badge no underline");
 
   badge?.dispatchEvent(
@@ -193,6 +199,21 @@ function render(
     1,
     "linked currency duplicate badge count"
   );
+}
+
+{
+  const root = createRoot('<a href="#roomy-card"><span>AED 100</span></a>');
+  const link = root.querySelector<HTMLAnchorElement>("a")!;
+  let linkClicks = 0;
+  link.addEventListener("click", () => linkClicks++);
+  render(root, "USD", () => 27.23);
+  const badge = document.querySelector<HTMLElement>(BADGE_SELECTOR)!;
+  badge.dispatchEvent(new window.FocusEvent("focus") as unknown as Event);
+  expectEqual(document.querySelector<HTMLElement>('[data-ehinium-tooltip="true"]')?.style.visibility, "visible", "adjacent badge tooltip opens");
+  badge.dispatchEvent(new window.FocusEvent("blur") as unknown as Event);
+  expectEqual(document.querySelector<HTMLElement>('[data-ehinium-tooltip="true"]')?.style.visibility, "hidden", "adjacent badge tooltip closes");
+  link.dispatchEvent(new window.MouseEvent("click", { bubbles: true }) as unknown as Event);
+  expectEqual(linkClicks, 1, "roomy clickable card remains clickable");
 }
 
 {
@@ -331,6 +352,30 @@ for (const [convertedAmount, expected] of [
     "10000000IRR",
     "large currency raw page text"
   );
+}
+
+{
+  const root = createRoot('<span>31,930,000</span><span>تومان</span>');
+  const candidates = discoverCurrencyMatchesInElement(root).matches;
+  const rendered = renderConversions(getTextNodes(root), {
+    enabled: true,
+    targetCurrency: "USD",
+    converterMode: "currencies",
+    badgeStyle: "default",
+    badgeVisibility: "always",
+    unitSystem: "auto",
+    targetLengthUnit: "auto",
+    targetWeightUnit: "auto",
+    targetTemperatureUnit: "auto",
+    currencyDomMatches: candidates,
+    convertAmount: () => 75.98,
+  });
+  const badge = document.querySelector<HTMLElement>(BADGE_SELECTOR)!;
+  expectEqual(candidates.length, 1, "Iranian split-DOM candidate adapter input");
+  expectEqual(rendered, 1, "Iranian split-DOM candidate renders");
+  expectEqual(badge.parentElement, root.parentElement, "Iranian split-DOM badge uses old adjacent anchor presentation");
+  expectEqual(document.querySelector('[data-euc-overlay-root="true"]'), null, "Iranian split-DOM rendering creates no overlay root");
+  expectEqual(getHoverTarget(badge)?.content, "31,930,000 IRT → $75.98", "Iranian split-DOM tooltip content");
 }
 
 {

@@ -10,6 +10,7 @@ import {
 export type PriceDiscoveryMode =
   | "leaf-text"
   | "split-text"
+  | "price-cluster"
   | "combined-parent"
   | "aggregate-fallback";
 
@@ -47,6 +48,8 @@ export type PriceCandidate = {
   textScopeLength: number;
   parserMatchCount: number;
   canonicalKey: string;
+  currencyOrigin: "explicit" | "inferred";
+  clusterIndex: number | null;
 };
 
 export type CandidateDiscoveryDiagnostic = {
@@ -56,6 +59,7 @@ export type CandidateDiscoveryDiagnostic = {
   normalizedMatchedText: string;
   amount: number;
   sourceCurrency: string;
+  currencyOrigin: "explicit" | "inferred";
   targetCurrency: string;
   rangeValid: boolean;
   rectCount: number;
@@ -104,6 +108,13 @@ let nextBatchId = 1;
 let latestDiscoveryDiagnostics: CandidateDiscoveryDiagnostic[] = [];
 let latestCanonicalizationDiagnostics: CanonicalizationDiagnostic[] = [];
 let latestReconciliationDiagnostics: VisualSourceReconciliationDiagnostic[] = [];
+let reconciliationBatchBadges: HTMLElement[] | null = null;
+let reconciliationBatchBadgeSet: Set<HTMLElement> | null = null;
+let reconciliationBatchBadgesByRateKey: Map<string, HTMLElement[]> | null = null;
+
+function rateKey(sourceCurrency: string | undefined, sourceAmount: string | number | undefined, targetCurrency: string | undefined): string {
+  return `${sourceCurrency ?? ""}|${String(sourceAmount ?? "")}|${targetCurrency ?? ""}`;
+}
 
 function identity<T extends Node>(map: WeakMap<T, string>, node: T, prefix: string, next: () => number): string {
   const existing = map.get(node);
@@ -213,6 +224,7 @@ function rangeGeometry(
 function discoveryMode(match: CurrencyDomMatch, aggregate: boolean): PriceDiscoveryMode {
   if (aggregate) return "aggregate-fallback";
   if (match.scanKind === "direct") return "leaf-text";
+  if (match.scanKind === "cluster-explicit" || match.scanKind === "cluster-inferred") return "price-cluster";
   return match.sourceNodes.length > 1 ? "split-text" : "combined-parent";
 }
 
@@ -221,7 +233,8 @@ function canonicalKeyFor(
   targetCurrency: string,
   stableContext: HTMLElement,
   localContextHash: string,
-  bounding: DOMRect | null
+  bounding: DOMRect | null,
+  descriptor: RangeDescriptor | null
 ): string {
   const root = match.sourceElement.getRootNode() as Document | ShadowRoot;
   const contextRect = stableContext.getBoundingClientRect();
@@ -229,7 +242,9 @@ function canonicalKeyFor(
   const relativeY = bounding ? Math.round((bounding.top - contextRect.top) / 4) : 0;
   return hashText([
     rootId(root), contextId(stableContext), match.match.amount, match.match.currency,
-    targetCurrency, normalize(match.match.raw), localContextHash, relativeX, relativeY,
+    targetCurrency, normalize(match.match.raw), match.currencyOrigin ?? "explicit",
+    match.clusterIndex ?? "none", descriptor?.signature ?? "no-range",
+    localContextHash, relativeX, relativeY,
   ].join("|"));
 }
 
@@ -276,7 +291,9 @@ export function discoverPriceCandidates(
       sourceDepth: Math.max(...match.sourceNodes.map(depthOf)),
       textScopeLength: (match.renderingAnchor.textContent ?? "").length,
       parserMatchCount: parseCurrencies(match.renderingAnchor.textContent ?? "").length,
-      canonicalKey: canonicalKeyFor(match, targetCurrency, stableContext, localContextHash, geometry.bounding),
+      canonicalKey: canonicalKeyFor(match, targetCurrency, stableContext, localContextHash, geometry.bounding, descriptor),
+      currencyOrigin: match.currencyOrigin ?? "explicit",
+      clusterIndex: match.clusterIndex ?? null,
     };
     candidates.push(candidate);
     latestDiscoveryDiagnostics.push({
@@ -286,6 +303,7 @@ export function discoverPriceCandidates(
       normalizedMatchedText: candidate.normalizedMatchedText,
       amount: candidate.amount,
       sourceCurrency: candidate.sourceCurrency,
+      currencyOrigin: candidate.currencyOrigin,
       targetCurrency,
       rangeValid: descriptor !== null,
       rectCount: geometry.rects.length,
@@ -334,7 +352,7 @@ function sameVisualSource(first: PriceCandidate, second: PriceCandidate): boolea
 
 function rank(candidate: PriceCandidate): number[] {
   const modeRank: Record<PriceDiscoveryMode, number> = {
-    "leaf-text": 0, "split-text": 1, "combined-parent": 3, "aggregate-fallback": 4,
+    "leaf-text": 0, "split-text": 1, "price-cluster": 2, "combined-parent": 3, "aggregate-fallback": 4,
   };
   const area = candidate.boundingRect ? candidate.boundingRect.width * candidate.boundingRect.height : Number.MAX_SAFE_INTEGER;
   return [
@@ -366,23 +384,42 @@ function rejectionReason(selected: PriceCandidate, rejected: PriceCandidate): st
   return "Ancestor aggregate duplicate";
 }
 
-function validCandidate(candidate: PriceCandidate): boolean {
+function validCandidate(
+  candidate: PriceCandidate,
+  visibilityCache: WeakMap<HTMLElement, boolean>
+): boolean {
   if (!candidate.sourceTextNodes.every((node) => node.isConnected) ||
-      !candidate.domMatch.renderingAnchor.isConnected || candidate.boundingRect === null) return false;
+      !candidate.domMatch.renderingAnchor.isConnected || candidate.boundingRect === null ||
+      (candidate.boundingRect.width <= 1 && candidate.boundingRect.height <= 1)) return false;
+  if (typeof candidate.domMatch.sourceElement.checkVisibility === "function") {
+    return candidate.domMatch.sourceElement.checkVisibility({
+      checkOpacity: true,
+      checkVisibilityCSS: true,
+    });
+  }
   let current: HTMLElement | null = candidate.domMatch.sourceElement;
   while (current) {
+    const cachedVisible = visibilityCache.get(current);
+    if (cachedVisible === false) return false;
+    if (cachedVisible === true) {
+      current = current.parentElement;
+      continue;
+    }
     const style = getComputedStyle(current);
     if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" ||
         (style.opacity !== "" && Number(style.opacity) === 0)) {
+      visibilityCache.set(current, false);
       return false;
     }
+    visibilityCache.set(current, true);
     current = current.parentElement;
   }
   return true;
 }
 
 export function canonicalizePriceCandidates(candidates: readonly PriceCandidate[]): PriceCandidate[] {
-  const valid = candidates.filter(validCandidate);
+  const visibilityCache = new WeakMap<HTMLElement, boolean>();
+  const valid = candidates.filter((candidate) => validCandidate(candidate, visibilityCache));
   const groups: PriceCandidate[][] = [];
   for (const candidate of valid) {
     const related = groups.find((group) => group.some((member) => sameVisualSource(candidate, member)));
@@ -411,7 +448,12 @@ export function canonicalizePriceCandidates(candidates: readonly PriceCandidate[
 }
 
 function matchingBadges(candidate: PriceCandidate): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]')]
+  const badges = reconciliationBatchBadges ??
+    [...document.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]')];
+  const rateBadges = reconciliationBatchBadgesByRateKey?.get(
+    rateKey(candidate.sourceCurrency, candidate.amount, candidate.targetCurrency)
+  ) ?? badges;
+  return rateBadges
     .filter((badge) => badge.dataset.ehiniumSourceCurrency === candidate.sourceCurrency &&
       Number(badge.dataset.ehiniumSourceAmount) === candidate.amount &&
       badge.dataset.ehiniumTargetCurrency === candidate.targetCurrency &&
@@ -507,6 +549,18 @@ export function registerCanonicalVisualSource(candidate: PriceCandidate, badge: 
     targetCurrency: candidate.targetCurrency,
     creationReason: "Canonical currency badge registered",
   });
+  if (reconciliationBatchBadges && !reconciliationBatchBadgeSet?.has(authoritative)) {
+    reconciliationBatchBadges.push(authoritative);
+    reconciliationBatchBadgeSet?.add(authoritative);
+    const key = rateKey(
+      authoritative.dataset.ehiniumSourceCurrency,
+      authoritative.dataset.ehiniumSourceAmount,
+      authoritative.dataset.ehiniumTargetCurrency
+    );
+    const keyed = reconciliationBatchBadgesByRateKey?.get(key);
+    if (keyed) keyed.push(authoritative);
+    else reconciliationBatchBadgesByRateKey?.set(key, [authoritative]);
+  }
   registry.set(candidate.canonicalKey, { key: candidate.canonicalKey, candidate, badge: authoritative, lastSeenAt: Date.now() });
   latestReconciliationDiagnostics.push({
     canonicalKey: candidate.canonicalKey,
@@ -523,6 +577,21 @@ export function registerCanonicalVisualSource(candidate: PriceCandidate, badge: 
 
 export function beginVisualSourceReconciliationBatch(): void {
   latestReconciliationDiagnostics = [];
+  reconciliationBatchBadges = [
+    ...document.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]'),
+  ];
+  reconciliationBatchBadgeSet = new Set(reconciliationBatchBadges);
+  reconciliationBatchBadgesByRateKey = new Map();
+  for (const badge of reconciliationBatchBadges) {
+    const key = rateKey(
+      badge.dataset.ehiniumSourceCurrency,
+      badge.dataset.ehiniumSourceAmount,
+      badge.dataset.ehiniumTargetCurrency
+    );
+    const keyed = reconciliationBatchBadgesByRateKey.get(key);
+    if (keyed) keyed.push(badge);
+    else reconciliationBatchBadgesByRateKey.set(key, [badge]);
+  }
   for (const [key, record] of registry) {
     const hasConnectedSource = record.candidate.sourceTextNodes.some((node) => node.isConnected);
     if (!record.badge.isConnected && !hasConnectedSource) registry.delete(key);

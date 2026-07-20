@@ -17,6 +17,14 @@ export function formatPageDiagnosticMarkdown(report: PageDiagnosticReport): stri
     `- Price-like elements: ${report.summary.priceLikeElementCount}`,
     `- Parser matches: ${report.summary.parserMatchCount}`,
     `- Split candidates: ${report.summary.splitPriceCandidateCount}`,
+    `- Direct text parser matches: ${report.summary.directTextParserMatches}`,
+    `- Split text parser matches: ${report.summary.splitTextParserMatches}`,
+    `- Cluster explicit matches: ${report.summary.clusterExplicitMatches}`,
+    `- Cluster inferred matches: ${report.summary.clusterInferredMatches}`,
+    `- Rejected parser matches: ${report.summary.rejectedParserMatches}`,
+    `- Candidate construction failures: ${report.summary.candidateConstructionFailures}`,
+    `- Canonical candidates: ${report.summary.canonicalCandidates}`,
+    `- Rendered badges: ${report.summary.renderedBadges}`,
     "",
   ];
 

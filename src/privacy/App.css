@@ -1,0 +1,20 @@
+html,
+body,
+#root {
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+html {
+  scroll-padding-top: var(--space-4);
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.policy-copy p,
+.policy-copy li {
+  overflow-wrap: anywhere;
+}

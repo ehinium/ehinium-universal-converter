@@ -4,6 +4,24 @@ import {
   type CombinedRateStatus,
 } from "../rateStatus";
 
+function getIranianStatusLines(
+  status: NonNullable<CombinedRateStatus["iranianBridgeStatus"]>
+): [string, string?] {
+  if (status.state === "fresh" || status.state === "stale") {
+    const [, freshDetails = ""] = formatIranianBridgeStatus({
+      ...status,
+      state: "fresh",
+    });
+    const updated = freshDetails.split(" · ").at(-1) ?? "Updated time unavailable";
+    return [updated, status.state === "stale" ? "Cached Ehinium source" : "Ehinium source"];
+  }
+
+  if (status.state === "loading") return ["Loading Iranian rate..."];
+  if (status.state === "unavailable") return ["Iranian rate unavailable"];
+  if (status.state === "misconfigured") return ["Iranian rate configuration unavailable"];
+  return [""];
+}
+
 type PopupFooterProps = {
   rateStatus: CombinedRateStatus;
   error: string | null;
@@ -25,9 +43,9 @@ export function PopupFooter({
       ? "bg-success"
       : "bg-muted-foreground";
   const iranianStatus = rateStatus.iranianBridgeStatus;
-  const [iranianMessage, ...iranianDetails] = iranianStatus
-    ? formatIranianBridgeStatus(iranianStatus)
-    : [];
+  const [iranianMessage, iranianDetail] = iranianStatus
+    ? getIranianStatusLines(iranianStatus)
+    : [""];
 
   return (
     <footer className="grid gap-1 text-xs leading-4 text-muted-foreground">
@@ -36,9 +54,11 @@ export function PopupFooter({
           className={`mt-1.5 size-1.5 shrink-0 rounded-full ${statusDotClass}`}
           aria-hidden="true"
         />
-        <p>
-          <span className="text-foreground">{message}</span>
-          {details.length > 0 ? ` · ${details.join(" · ")}` : ""}
+        <p className="min-w-0">
+          <span className="block text-foreground">{message}</span>
+          {details.length > 0 ? (
+            <span className="block text-muted-foreground">{details.join(" · ")}</span>
+          ) : null}
         </p>
       </div>
       {iranianMessage ? (
@@ -53,9 +73,11 @@ export function PopupFooter({
             }`}
             aria-hidden="true"
           />
-          <p>
-            <span className="text-foreground">{iranianMessage}</span>
-            {iranianDetails.length > 0 ? ` · ${iranianDetails.join(" · ")}` : ""}
+          <p className="min-w-0">
+            <span className="block text-foreground">{iranianMessage}</span>
+            {iranianDetail ? (
+              <span className="block text-muted-foreground">{iranianDetail}</span>
+            ) : null}
           </p>
         </div>
       ) : null}
