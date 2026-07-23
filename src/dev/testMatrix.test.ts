@@ -4,6 +4,12 @@ import {
   iranianBridgeCurrencyCodes,
 } from "../data/currencies";
 import { parseCurrencies } from "../utils/currencyParser";
+import { convertCurrency } from "../utils/currencyConverter";
+import type { NormalizedRatesResponse } from "../types/rates";
+import {
+  composeSmokeConversionRates,
+  deterministicSmokeIranianBridgeRate,
+} from "./smokeRates";
 import { generateCurrencyTestMatrix } from "./testMatrix";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -123,19 +129,6 @@ for (const testCase of matrix.filter(
   (item) => item.expectedBehavior === "convert"
 )) {
   const matches = parseCurrencies(testCase.sourceText);
-  const isAttachedIranianPrefixAlias =
-    (testCase.currency === "IRT" || testCase.currency === "IRR") &&
-    testCase.formatId === "symbol-prefix" &&
-    !testCase.sourceText.startsWith(testCase.currency);
-
-  if (isAttachedIranianPrefixAlias) {
-    assert(
-      matches.length === 0,
-      `${testCase.id} must preserve Iranian alias token boundaries`
-    );
-    continue;
-  }
-
   const expectedCount = testCase.expectedMatchCount ?? 1;
   const currenciesMatch = matches.every(
     (match) => match.currency === testCase.expectedSourceCurrency
@@ -166,11 +159,67 @@ assert(
     .join("\n")}`
 );
 
+for (const testCase of matrix.filter(
+  (item) => item.expectedBehavior === "ignore" || item.expectedBehavior === "unsupported"
+)) {
+  assert(
+    parseCurrencies(testCase.sourceText).length === 0,
+    `${testCase.id} must not emit a production parser match`
+  );
+}
+
 // Canary cases confirm the generator is connected to the real parser, not a
 // private smoke-page implementation.
 const usdCanary = matrix.find((testCase) => testCase.id === "usd-iso-prefix");
 assert(usdCanary, "USD ISO canary is missing");
 assert(parseCurrencies(usdCanary.sourceText)[0]?.currency === "USD", "USD canary did not use production parsing");
+
+const localizedToman = matrix.find(
+  (testCase) => testCase.sourceText === "۱٬۲۳۴ تومان"
+);
+assert(localizedToman?.expectedBehavior === "convert", "Localized Toman must be a convert case");
+assert(localizedToman.expectedSourceCurrency === "IRT", "Localized Toman must resolve to IRT");
+assert(parseCurrencies(localizedToman.sourceText)[0]?.currency === "IRT", "Localized Toman did not use production IRT parsing");
+
+for (const sourceText of [
+  "Rial1,234.56",
+  "Rials1,234.56",
+  "ریال1,234.56",
+  "TMN1,234.56",
+  "Toman1,234.56",
+  "Tomans1,234.56",
+  "تومان1,234.56",
+  "تومن1,234.56",
+]) {
+  const testCase = matrix.find((item) => item.sourceText === sourceText);
+  assert(testCase?.expectedBehavior === "unsupported", `${sourceText} must remain an unsupported glued identifier`);
+  assert(parseCurrencies(sourceText).length === 0, `${sourceText} must preserve production token boundaries`);
+}
+
+for (const [sourceText, currency] of [
+  ["1,234 Rial", "IRR"],
+  ["Rial 1,234", "IRR"],
+  ["۱٬۲۳۴ ریال", "IRR"],
+  ["۱٬۲۳۴ تومان", "IRT"],
+  ["TMN 1,234", "IRT"],
+  ["1,234 Toman", "IRT"],
+] as const) {
+  const match = parseCurrencies(sourceText)[0];
+  assert(match?.currency === currency, `${sourceText} must resolve to ${currency}`);
+  assert(match.amount === 1234, `${sourceText} must preserve the parsed amount`);
+}
+
+const usdGlobalRates: NormalizedRatesResponse = {
+  base: "USD",
+  date: "2026-07-20",
+  provider: "frankfurter+fawaz",
+  rates: { USD: 1, EUR: 0.8 },
+};
+const smokeRates = composeSmokeConversionRates("USD", usdGlobalRates);
+assert(deterministicSmokeIranianBridgeRate.usdSellIrt === 200_000, "Smoke bridge rate must remain deterministic");
+assert(convertCurrency(2_000_000, "IRR", "USD", smokeRates) === 1, "Deterministic IRR to USD conversion is incorrect");
+assert(convertCurrency(200_000, "IRT", "USD", smokeRates) === 1, "Deterministic IRT to USD conversion is incorrect");
+assert(smokeRates.IRR === smokeRates.IRT * 10, "Smoke rates must preserve the exact 10 IRR = 1 IRT relationship");
 
 console.log(
   `Generated ${matrix.length} cases across ${coveredCurrencies.size} currencies and ${formatIds.size} formats.`

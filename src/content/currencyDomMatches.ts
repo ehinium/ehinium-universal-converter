@@ -117,6 +117,27 @@ const SAME_NODE_BOUNDARY: FragmentBoundary = {
 };
 let latestRejectedParserMatches = 0;
 
+function parserBoundary(
+  previousText: string,
+  currentText: string,
+  boundary: FragmentBoundary
+): string {
+  if (!boundary.safeForPriceJoin) return HARD_FRAGMENT_BOUNDARY;
+
+  // Commerce prices commonly split the decimal tail into its own inline node.
+  // Keeping a synthetic token boundary between `353` and `,62` changes the
+  // parser's meaning to the standalone fractional tail. Join only this narrow,
+  // structurally safe numeric shape; ordinary word/token boundaries remain.
+  if (
+    /[0-9٠-٩۰-۹]\s*$/u.test(previousText) &&
+    /^\s*[.,٫][0-9٠-٩۰-۹]{1,4}(?![0-9٠-٩۰-۹])/u.test(currentText)
+  ) {
+    return "";
+  }
+
+  return CURRENCY_SAFE_FRAGMENT_BOUNDARY;
+}
+
 export function getCurrencyDomDiscoveryCounters(): { rejectedParserMatches: number } {
   return { rejectedParserMatches: latestRejectedParserMatches };
 }
@@ -178,9 +199,7 @@ export function collectSourceTextFragments(
         : SAME_NODE_BOUNDARY;
       if (previous && preserveFragmentBoundaries) {
         previous.boundaryAfter = boundaryBefore;
-        parserInput += boundaryBefore.safeForPriceJoin
-          ? CURRENCY_SAFE_FRAGMENT_BOUNDARY
-          : HARD_FRAGMENT_BOUNDARY;
+        parserInput += parserBoundary(previous.text, text, boundaryBefore);
       }
       const combinedStart = input.length;
       const parserStart = parserInput.length;

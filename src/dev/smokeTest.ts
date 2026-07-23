@@ -20,6 +20,21 @@ import {
   generateCurrencyTestMatrix,
   type TestCase,
 } from "./testMatrix";
+import { composeSmokeConversionRates } from "./smokeRates";
+import {
+  mountRealRetailCaptureStages,
+  realRetailCaptures,
+  runRealRetailCaptureSuite,
+  type RealRetailCaptureReport,
+} from "./realRetailCaptures";
+import {
+  mountRetailFixtureStages,
+  retailFixtures,
+  RETAIL_FIXTURE_RATES,
+  RETAIL_FIXTURE_TARGET_CURRENCY,
+  runRetailFixtureSuite,
+  type RetailFixtureReport,
+} from "./retailFixtures";
 
 export type StageStatus = "pass" | "fail" | "skip" | "not-run";
 export type OverallStatus = "pass" | "fail" | "warning" | "not-run";
@@ -113,19 +128,33 @@ type ExportBundle = {
   summary: ReturnType<typeof summarize>;
   results: TestCaseResult[];
   domChecks: DomCheckResult[];
+  retailFixtures: RetailFixtureReport[];
+  realRetailCaptures: RealRetailCaptureReport[];
 };
 
 const matrix = generateCurrencyTestMatrix();
 const resultById = new Map<string, TestCaseResult>();
 const app = document.querySelector<HTMLElement>("#app") ?? failMissingRoot();
+const retailFixtureRoot = document.querySelector<HTMLElement>("#retail-fixture-root") ?? failMissingRetailRoot();
+const realRetailCaptureRoot = document.querySelector<HTMLElement>("#real-retail-capture-root") ?? failMissingRealRetailRoot();
 
 let running = false;
 let rateInfo: NormalizedRatesResponse | null = null;
 let rateError: string | undefined;
 let domChecks: DomCheckResult[] = [];
+let retailFixtureReports: RetailFixtureReport[] = [];
+let realRetailCaptureReports: RealRetailCaptureReport[] = [];
 
 function failMissingRoot(): never {
   throw new Error("Smoke-test application root is missing.");
+}
+
+function failMissingRetailRoot(): never {
+  throw new Error("Retail fixture root is missing or mounted under the smoke-test UI.");
+}
+
+function failMissingRealRetailRoot(): never {
+  throw new Error("Real retail capture root is missing or mounted under the ignored smoke-test UI.");
 }
 
 function escapeHtml(value: unknown): string {
@@ -174,6 +203,7 @@ function init(): void {
         </div>
         <div class="actions">
           <button id="run" type="button">Run full self-test</button>
+          <button id="run-retail" class="secondary" type="button">Run retail fixtures</button>
           <button id="export-json" class="secondary" type="button">Export full JSON</button>
           <button id="export-failures-json" class="secondary" type="button">Export failures JSON</button>
           <button id="export-jsonl" class="secondary" type="button">Export full JSONL</button>
@@ -189,6 +219,18 @@ function init(): void {
       <section class="panel" aria-labelledby="dom-checks-title">
         <div class="status-line"><strong id="dom-checks-title">DOM pipeline checks</strong><span id="dom-check-summary">Pending full self-test</span></div>
         <div id="dom-checks" class="dom-checks"><span class="meta">The full run uses production scanner, exclusions, renderer, duplicate guards, and mutation observer.</span></div>
+      </section>
+
+      <section class="panel" aria-labelledby="real-retail-captures-title">
+        <div class="status-line"><strong id="real-retail-captures-title">Real Retail DOM Captures</strong><span id="real-retail-capture-summary">Pending capture run</span></div>
+        <p class="meta">Sanitized subtrees reconstructed from selected-element diagnostics. These alone report retailer compatibility.</p>
+        <div id="real-retail-capture-reports" class="retail-fixture-reports"><span class="meta">Run the full self-test or retail fixtures to execute the captured DOM pipeline.</span></div>
+      </section>
+
+      <section class="panel" aria-labelledby="retail-fixtures-title">
+        <div class="status-line"><strong id="retail-fixtures-title">Synthetic Pattern Fixtures</strong><span id="retail-fixture-summary">Pending fixture run</span></div>
+        <p class="meta">Fixture stages are mounted in a separate scanner-eligible root below this ignored report UI. Deterministic rates use CAD as the base: one CAD equals <code>rates[currency]</code> source units.</p>
+        <div id="retail-fixture-reports" class="retail-fixture-reports"><span class="meta">Run the full self-test or the retail fixture section independently.</span></div>
       </section>
 
       <section class="panel">
@@ -218,6 +260,7 @@ function init(): void {
     runParserPreflight();
   });
   document.getElementById("run")?.addEventListener("click", () => void runFullSelfTest());
+  document.getElementById("run-retail")?.addEventListener("click", () => void runRetailFixturesOnly());
   document.getElementById("export-json")?.addEventListener("click", () => download("json", "full-run"));
   document.getElementById("export-failures-json")?.addEventListener("click", () => download("json", "failures-only"));
   document.getElementById("export-jsonl")?.addEventListener("click", () => download("jsonl", "full-run"));
@@ -333,19 +376,26 @@ function runParserPreflight(): void {
 
 function runParserPreflightUnsafe(): void {
   domChecks = [];
+  retailFixtureReports = [];
+  realRetailCaptureReports = [];
+  mountRetailFixtureStages(retailFixtureRoot);
+  mountRealRetailCaptureStages(realRetailCaptureRoot);
   resultById.clear();
   for (const testCase of matrix) resultById.set(testCase.id, evaluateParser(testCase));
 }
 
 async function loadProductionRates(targetCurrency: string): Promise<ExchangeRates> {
   try {
-    rateInfo = await getExchangeRates(targetCurrency, { forceRefresh: true });
+    const globalBase = targetCurrency === "IRT" || targetCurrency === "IRR"
+      ? "USD"
+      : targetCurrency;
+    rateInfo = await getExchangeRates(globalBase, { forceRefresh: true });
     rateError = undefined;
-    return { ...rateInfo.rates, [targetCurrency]: 1 };
+    return composeSmokeConversionRates(targetCurrency, rateInfo);
   } catch (error) {
     rateInfo = null;
     rateError = error instanceof Error ? error.message : String(error);
-    return Object.fromEntries(fiatCurrencies.map((currency) => [currency.code, 1]));
+    return { [targetCurrency]: 1 };
   }
 }
 
@@ -439,12 +489,30 @@ async function runFullSelfTest(): Promise<void> {
 
   setText("status", "Checking DOM exclusions, duplicates, and mutation delivery…");
   domChecks = await runDomInfrastructureChecks(target, rates);
+  setText("status", `Running ${retailFixtures.length} retail DOM fixtures…`);
+  realRetailCaptureReports = await runRealRetailCaptureSuite(realRetailCaptureRoot);
+  retailFixtureReports = await runRetailFixtureSuite(retailFixtureRoot);
   running = false;
   toggleRunControls(false);
-  setText("status", `Self-test complete${rateError ? " with offline rates" : ` using ${rateInfo?.provider ?? "production rates"}`}`);
+  setText("status", `Self-test complete${rateError ? " with unavailable production rates" : ` using ${rateInfo?.provider ?? "production rates"} plus the deterministic Iranian bridge`}`);
   setText("run-note", rateError
-    ? `Rate providers failed; deterministic 1:1 fallback used. ${rateError}`
-    : `Rates: ${rateInfo?.provider}, base ${rateInfo?.base}, date ${rateInfo?.date}.`);
+    ? `Rate providers failed; missing rates remain visible as failures. ${rateError}`
+    : `Rates: ${rateInfo?.provider}, base ${rateInfo?.base}, date ${rateInfo?.date}; deterministic bridge: 1 USD = 200,000 IRT = 2,000,000 IRR.`);
+  render();
+}
+
+async function runRetailFixturesOnly(): Promise<void> {
+  if (running) return;
+  running = true;
+  toggleRunControls(true);
+  setText("status", `Running ${realRetailCaptures.length} real captures and ${retailFixtures.length} synthetic patterns with deterministic ${RETAIL_FIXTURE_TARGET_CURRENCY}-base rates…`);
+  realRetailCaptureReports = await runRealRetailCaptureSuite(realRetailCaptureRoot);
+  retailFixtureReports = await runRetailFixtureSuite(retailFixtureRoot);
+  running = false;
+  toggleRunControls(false);
+  const failures = retailFixtureReports.filter((report) => !report.passed).length;
+  setText("status", `Retail fixtures complete: ${retailFixtureReports.length - failures}/${retailFixtureReports.length} passed.`);
+  setText("run-note", `Retail rates: deterministic ${RETAIL_FIXTURE_TARGET_CURRENCY} base (${Object.keys(RETAIL_FIXTURE_RATES).length} currencies).`);
   render();
 }
 
@@ -603,6 +671,10 @@ function summarize(results = [...resultById.values()]) {
     ),
     domChecks: domChecks.length,
     domFailures: domChecks.filter((check) => !check.passed).length,
+    retailFixtures: retailFixtureReports.length,
+    retailFailures: retailFixtureReports.filter((report) => !report.passed).length,
+    realRetailCaptures: realRetailCaptureReports.length,
+    realRetailFailures: realRetailCaptureReports.filter((report) => !report.passed).length,
   };
 }
 
@@ -654,6 +726,8 @@ function render(): void {
     ["Not run", summary.overall["not-run"], ""],
   ].map(([label, value, className]) => `<div class="metric ${className}">${label}<strong>${Number(value).toLocaleString()}</strong></div>`).join("");
   renderDomChecks();
+  renderRealRetailCaptureReports();
+  renderRetailFixtureReports();
 
   setText("shown", `${Math.min(visible.length, 750).toLocaleString()} shown / ${visible.length.toLocaleString()} matched`);
   const body = document.getElementById("results");
@@ -661,6 +735,64 @@ function render(): void {
   body.innerHTML = visible.length === 0
     ? '<tr><td colspan="9" class="empty">No cases match these filters.</td></tr>'
     : visible.slice(0, 750).map(renderRow).join("");
+}
+
+function renderRealRetailCaptureReports(): void {
+  const container = document.getElementById("real-retail-capture-reports");
+  if (!container) return;
+  if (realRetailCaptureReports.length === 0) {
+    container.innerHTML = '<span class="meta">Pending real capture run.</span>';
+    setText("real-retail-capture-summary", `Pending (${realRetailCaptures.length} captures)`);
+    return;
+  }
+  const failures = realRetailCaptureReports.filter((report) => !report.passed).length;
+  setText("real-retail-capture-summary", `${realRetailCaptureReports.length - failures}/${realRetailCaptureReports.length} passed`);
+  container.innerHTML = realRetailCaptureReports.map((report) => `
+    <details class="retail-report ${report.passed ? "retail-report-pass" : "retail-report-fail"}">
+      <summary>${tag(report.passed ? "pass" : "fail")}<strong>${escapeHtml(report.retailer)}</strong><span>${escapeHtml(report.hostname)} · v${report.fixtureVersion}</span></summary>
+      <dl>
+        <div><dt>Capture</dt><dd>${escapeHtml(report.capturedAt)} · ${escapeHtml(report.sourceSelector)}</dd></div>
+        <div><dt>First failing stage</dt><dd>${escapeHtml(report.firstFailingStage ?? "none")}</dd></div>
+        <div><dt>Scanner</dt><dd>${report.eligibleTextNodes.length} eligible; ${report.excludedTextNodes.length} excluded</dd></div>
+        <div><dt>Parser</dt><dd>${escapeHtml(report.parsedMatches.map((match) => `${match.amount} ${match.currency} [${match.raw}]`).join(" · ") || "none")}</dd></div>
+        <div><dt>Grouped</dt><dd>${escapeHtml(report.groupedCandidates.map((item) => `${item.amount} ${item.currency}`).join(" · ") || "none")}</dd></div>
+        <div><dt>Discovery / canonical</dt><dd>${report.discoveredCandidates.length} / ${report.canonicalCandidates.length}</dd></div>
+        <div><dt>Anchors</dt><dd>${escapeHtml(report.selectedAnchors.join(" · ") || "none")}</dd></div>
+        <div><dt>Renderer / rescan / mutation</dt><dd>${report.renderedBadgeCount} / ${report.repeatedScanBadgeCount} / ${report.mutationBadgeCount}</dd></div>
+        <div><dt>Badges</dt><dd>${escapeHtml(report.badgeVisibleText.join(" · ") || "none")}</dd></div>
+        <div><dt>Reasons</dt><dd>${escapeHtml(report.reasons.join(" · "))}</dd></div>
+        <div><dt>Raw captured subtree</dt><dd><pre>${escapeHtml(report.rawCapturedSubtree)}</pre></dd></div>
+        <div><dt>Debug timeline</dt><dd><pre>${escapeHtml(report.debugTimeline.join("\n"))}</pre></dd></div>
+      </dl>
+    </details>`).join("");
+}
+
+function renderRetailFixtureReports(): void {
+  const container = document.getElementById("retail-fixture-reports");
+  if (!container) return;
+  if (retailFixtureReports.length === 0) {
+    container.innerHTML = '<span class="meta">Pending retail fixture run.</span>';
+    setText("retail-fixture-summary", `Pending (${retailFixtures.length} fixtures)`);
+    return;
+  }
+  const failures = retailFixtureReports.filter((report) => !report.passed).length;
+  setText("retail-fixture-summary", `${retailFixtureReports.length - failures}/${retailFixtureReports.length} passed`);
+  container.innerHTML = retailFixtureReports.map((report) => `
+    <details class="retail-report ${report.passed ? "retail-report-pass" : "retail-report-fail"}">
+      <summary>${tag(report.passed ? "pass" : "fail")}<strong>${escapeHtml(report.fixtureId)}</strong><span>${escapeHtml(report.market)} · ${escapeHtml(report.locale)}</span></summary>
+      <dl>
+        <div><dt>DOM pattern</dt><dd>${escapeHtml(report.domPattern)}</dd></div>
+        <div><dt>Eligible / excluded</dt><dd>${report.eligibleTextNodeCount} / ${report.excludedTextNodes.length}</dd></div>
+        <div><dt>Parser matches</dt><dd>${escapeHtml(report.parserMatches.map((match) => `${match.amount} ${match.currency} [${match.raw}]`).join(" · ") || "none")}</dd></div>
+        <div><dt>Grouped candidates</dt><dd>${escapeHtml(report.groupedPriceCandidates.map((item) => `${item.amount} ${item.currency}`).join(" · ") || "none")}</dd></div>
+        <div><dt>Badges</dt><dd>${report.renderedBadgeCount}: ${escapeHtml(report.badgeVisibleText.join(" · ") || "none")}</dd></div>
+        <div><dt>Duplicate / placement</dt><dd>${report.duplicateBadgeDetected ? "duplicate detected" : "no duplicate"}; ${escapeHtml(report.placementSkipReasons.join(" · ") || "no placement skips")}</dd></div>
+        <div><dt>Excluded nodes</dt><dd>${escapeHtml(report.excludedTextNodes.map((item) => `${item.text.trim()} — ${item.reason}`).join(" · ") || "none")}</dd></div>
+        <div><dt>Mutations</dt><dd>${escapeHtml(report.mutationSteps.map((step) => `${step.description}: rescanExpected=${step.rescanExpected}, observer=${step.observerDelivered}, nodes=${step.eligibleTextNodeCount}, badges=${step.renderedBadgeCount}`).join(" · ") || "static fixture")}</dd></div>
+        <div><dt>Reset</dt><dd>${report.resetPreservedSourceDom ? "owned output removed; source preserved" : "failed"}</dd></div>
+        <div><dt>Reasons</dt><dd>${escapeHtml(report.reasons.join(" · "))}</dd></div>
+      </dl>
+    </details>`).join("");
 }
 
 function renderDomChecks(): void {
@@ -733,7 +865,7 @@ function makeBundle(
     environment: getEnvironment(),
     run: {
       targetCurrency: getSelect("target").value,
-      rateProvider: rateError ? "deterministic-offline-fallback" : rateInfo?.provider ?? "not-run",
+      rateProvider: rateError ? "unavailable" : `${rateInfo?.provider ?? "not-run"}+deterministic-ehinium-bridge`,
       rateDate: rateInfo?.date,
       rateError,
       filters: readFilters(),
@@ -741,6 +873,12 @@ function makeBundle(
     summary: summarize(results),
     results,
     domChecks,
+    retailFixtures: reportScope === "full-run"
+      ? retailFixtureReports
+      : retailFixtureReports.filter((report) => !report.passed),
+    realRetailCaptures: reportScope === "full-run"
+      ? realRetailCaptureReports
+      : realRetailCaptureReports.filter((report) => !report.passed),
   };
 }
 
@@ -789,6 +927,8 @@ function download(format: "json" | "jsonl", reportScope: ReportScope): void {
       environment: bundle.environment,
       run: bundle.run,
       summary: bundle.summary,
+      retailFixtures: bundle.retailFixtures,
+      realRetailCaptures: bundle.realRetailCaptures,
     });
     saveFile(`euc-smoke-${scopeName}-${stamp}.jsonl`, [header, ...bundle.results.map((result) => JSON.stringify(result))].join("\n"), "application/x-ndjson");
   }
@@ -810,7 +950,7 @@ async function copyFailures(): Promise<void> {
 }
 
 function toggleRunControls(disabled: boolean): void {
-  for (const id of ["run", "clear"]) {
+  for (const id of ["run", "run-retail", "clear"]) {
     const button = document.getElementById(id) as HTMLButtonElement | null;
     if (button) button.disabled = disabled;
   }

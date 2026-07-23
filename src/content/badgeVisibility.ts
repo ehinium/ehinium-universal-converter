@@ -199,7 +199,10 @@ function getActiveOverlays(): ActiveOverlay[] {
 
 function getHiddenReason(source: HTMLElement): BadgeVisibilityReason | null {
   if (!source.isConnected) return "source-disconnected";
-  if (source.closest('[inert], [aria-hidden="true"]')) return "source-hidden";
+  // aria-hidden is an accessibility-tree hint and does not imply that an
+  // element is visually hidden. Retailers commonly apply it to visible price
+  // glyph layers while exposing a separate semantic copy to assistive tech.
+  if (source.closest("[inert]")) return "source-hidden";
   let current: HTMLElement | null = source;
   let depth = 0;
   while (current && depth < MAX_STYLE_ANCESTORS) {

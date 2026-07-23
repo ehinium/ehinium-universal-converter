@@ -116,9 +116,17 @@ function makeSymbolCases(currency: CurrencyDefinition): TestCase[] {
       const shared = support.currencies.length > 1
         ? `Shared by ${support.currencies.join(", ")}.`
         : undefined;
+      const isIranianWordIdentifier =
+        (currency.code === "IRT" || currency.code === "IRR") &&
+        /\p{L}/u.test(symbol);
 
       return [
-        ["symbol-prefix", `${symbol}1,234.56`, baseBehavior, support.prefixCurrency],
+        [
+          "symbol-prefix",
+          `${symbol}1,234.56`,
+          isIranianWordIdentifier ? "unsupported" : baseBehavior,
+          isIranianWordIdentifier ? undefined : support.prefixCurrency,
+        ],
         ["symbol-prefix-space", `${symbol} 1,234.56`, baseBehavior, support.prefixCurrency],
         ["symbol-prefix-nbsp", `${symbol}${NBSP}1,234.56`, baseBehavior, support.prefixCurrency],
         ["symbol-prefix-nnbsp", `${symbol}${NNBSP}1,234.56`, baseBehavior, support.prefixCurrency],
@@ -144,7 +152,7 @@ function makeSymbolCases(currency: CurrencyDefinition): TestCase[] {
 function makeSpecialCases(): TestCase[] {
   const cases: TestCase[] = [
     { id: "localized-irr-rial", category: "localized-name", currency: "IRR", locale: "fa-IR", formatId: "iranian-rial-name", sourceText: "۱٬۲۳۴ ریال", expectedBehavior: "convert", expectedSourceCurrency: "IRR", expectedAmount: 1234, expectedMatchCount: 1 },
-    { id: "localized-irr-toman", category: "localized-name", currency: "IRR", locale: "fa-IR", formatId: "iranian-toman", sourceText: "۱٬۲۳۴ تومان", expectedBehavior: "unsupported", expectedMatchCount: 0, notes: "Toman is not in canonical fiat metadata and has a 10:1 semantic relationship to IRR." },
+    { id: "localized-irt-toman", category: "localized-name", currency: "IRT", locale: "fa-IR", formatId: "iranian-toman", sourceText: "۱٬۲۳۴ تومان", expectedBehavior: "convert", expectedSourceCurrency: "IRT", expectedAmount: 1234, expectedMatchCount: 1 },
     { id: "overlap-usd-qualified", category: "overlap", currency: "USD", locale: "en-US", formatId: "qualified-dollar", sourceText: "US$ 1,234.56", expectedBehavior: "convert", expectedSourceCurrency: "USD", expectedAmount: 1234.56, expectedMatchCount: 1 },
     { id: "overlap-yen-bare", category: "ambiguous-symbol", formatId: "bare-yen", sourceText: "¥1,234", expectedBehavior: "ambiguous", expectedSourceCurrency: "JPY", expectedAmount: 1234, expectedMatchCount: 0, notes: "Bare ¥ overlaps JPY and CNY; production convention currently defaults to JPY." },
     { id: "overlap-kr-bare", category: "ambiguous-symbol", formatId: "bare-kr", sourceText: "kr 1,234.56", expectedBehavior: "ambiguous", expectedMatchCount: 0, notes: "Shared by DKK, ISK, NOK, and SEK." },

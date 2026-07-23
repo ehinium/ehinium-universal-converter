@@ -730,7 +730,9 @@ export function renderConversions(
         badge,
         duplicateDecision
       );
-      registerBadgeVisibility(badge, candidate.sourceElement, anchor);
+      // Supplemental grouped matches can originate in aria-hidden visual
+      // fragments while their validated rendering anchor is visible.
+      registerBadgeVisibility(badge, anchor, anchor);
       registerCanonicalVisualSource(priceCandidate, badge);
 
       debugLog({

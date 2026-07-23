@@ -61,6 +61,22 @@ tbody tr:hover { background: #f8faff; }
 .dom-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 8px; }
 .dom-check { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px 8px; border: 1px solid #e5e9f1; border-radius: 10px; padding: 9px; }
 .dom-check .meta { grid-column: 2; }
+.retail-fixture-reports { display: grid; gap: 8px; margin-top: 12px; }
+.retail-report { border: 1px solid #e1e6ef; border-radius: 10px; padding: 9px 11px; }
+.retail-report-fail { border-color: #efb7bf; background: #fff8f9; }
+.retail-report summary { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.retail-report summary span:last-child { margin-left: auto; color: #667085; font-size: 11px; }
+.retail-report dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 16px; margin: 12px 0 0; }
+.retail-report dl > div { min-width: 0; }
+.retail-report dt { color: #667085; font-size: 11px; font-weight: 750; }
+.retail-report dd { margin: 2px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.retail-fixture-root { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; max-width: 1680px; margin: 0 auto 32px; padding: 0 28px 28px; }
+.retail-fixture-stage { position: relative; min-height: 92px; border: 1px solid #dce2ed; border-radius: 13px; padding: 36px 14px 14px; background: white; box-shadow: 0 8px 30px rgba(35, 49, 89, .055); }
+.retail-fixture-stage::before { content: attr(data-retail-fixture-id); position: absolute; top: 10px; left: 14px; color: #667085; font-size: 10px; font-weight: 750; letter-spacing: .03em; }
+.retail-fixture-stage > * { margin-inline-end: 8px; }
+.retail-fixture-stage .a-price { display: inline-flex; align-items: baseline; }
+.retail-fixture-stage .price-visible { display: inline-flex; align-items: baseline; gap: 2px; }
+.retail-fixture-stage .a-offscreen { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(1px, 1px, 1px, 1px) !important; clip-path: inset(50%) !important; white-space: nowrap !important; }
 #dev-render-sandbox { position: fixed; left: -12000px; top: 0; width: 900px; visibility: visible; pointer-events: none; }
 #dev-render-sandbox p { min-height: 24px; margin: 0; }
 
@@ -75,4 +91,6 @@ tbody tr:hover { background: #f8faff; }
   .controls { grid-template-columns: 1fr; }
   .summary { grid-template-columns: 1fr 1fr; }
   .run-note { width: 100%; margin: 2px 0 0; }
+  .retail-report dl { grid-template-columns: 1fr; }
+  .retail-fixture-root { grid-template-columns: 1fr; padding-inline: 16px; }
 }
