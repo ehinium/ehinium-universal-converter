@@ -48,7 +48,7 @@ async function expectUnavailable(
     expectEqual(message, "Iranian rates are unavailable", description);
 
     if (forbiddenText && message.includes(forbiddenText)) {
-      throw new Error(`${description}: exposed sensitive error text`);
+      throw new Error(`${description}: exposed sensitive error text`, { cause: error });
     }
 
     return;
@@ -282,7 +282,7 @@ async function expectDetailedError(
     await action();
   } catch (error) {
     if (!(error instanceof IranianBridgeClientError)) {
-      throw new Error(`${description}: expected IranianBridgeClientError`);
+      throw new Error(`${description}: expected IranianBridgeClientError`, { cause: error });
     }
     expectEqual(error.code, code, description);
     expectEqual(error.message.includes("secret-token"), false, description);

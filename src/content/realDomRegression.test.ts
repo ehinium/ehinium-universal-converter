@@ -46,6 +46,7 @@ Object.defineProperty(window.HTMLElement.prototype, "checkVisibility", {
   configurable: true,
   value(this: HTMLElement): boolean {
     if (!this.isConnected || this.closest("[hidden]")) return false;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- Walk the element and its ancestors in this visibility fixture.
     let current: HTMLElement | null = this;
     while (current) {
       const style = current.getAttribute("style") ?? "";

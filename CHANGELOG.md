@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 - 2026-10-25
+
+### Changed
+
+- Updated React to 19.3.1, Radix UI to 1.8.1, Lucide to 1.61.0, Tailwind CSS to 4.3.3, and Vite to 8.3.5.
+- Refreshed all installed shadcn/ui components from the Radix Nova registry and migrated class merging to the official `cn` package.
+- Preserved the converter's existing control sizes, neutral switches, and restrained card surfaces while adopting updated component behavior.
+- Updated development dependencies, including Happy DOM 21 and Chrome/Node type definitions. TypeScript remains at 6.0.3 because current lint tooling requires TypeScript below 6.1.
+
+### Fixed
+
+- Kept Radix state selectors compatible with the extension's existing Tailwind setup.
+- Restored the React runtime import required by the component test runner.
+- Made performance test environment checks respect Windows environment-variable casing.
+
 ## 0.3.0 - 2026-07-20
 
 ### Added
