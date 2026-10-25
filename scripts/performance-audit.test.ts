@@ -69,6 +69,7 @@ const startupFailure = await captureRejection(
 assert.match(startupFailure.message, /original startup failure/);
 assert.equal(startupFailure.cause, originalStartupError);
 
+const pathEnvironmentKey = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
 let receivedEnvironment: NodeJS.ProcessEnv | undefined;
 await runCommand("node", ["--version"], { cwd: root, env: { ...process.env, EUC_TEST_ENV: "preserved" } },
   (_command, _args, options) => {
@@ -78,7 +79,7 @@ await runCommand("node", ["--version"], { cwd: root, env: { ...process.env, EUC_
     return child;
   });
 assert.equal(receivedEnvironment?.EUC_TEST_ENV, "preserved");
-assert.equal((receivedEnvironment as NodeJS.ProcessEnv).PATH, process.env.PATH);
+assert.equal((receivedEnvironment as NodeJS.ProcessEnv)[pathEnvironmentKey], process.env[pathEnvironmentKey]);
 
 const buildCalls: Array<{ command: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv }> = [];
 await buildExtensions(async (command, args, options) => {
@@ -87,8 +88,8 @@ await buildExtensions(async (command, args, options) => {
 assert.deepEqual(buildCalls.map((call) => call.args), [["run", "build"], ["run", "build:perf"]]);
 assert.ok(buildCalls.every((call) => call.command === "npm"));
 assert.ok(buildCalls.every((call) => call.cwd === root));
-assert.equal(buildCalls[0].env?.PATH, process.env.PATH);
-assert.equal(buildCalls[1].env?.PATH, process.env.PATH);
+assert.equal(buildCalls[0].env?.[pathEnvironmentKey], process.env[pathEnvironmentKey]);
+assert.equal(buildCalls[1].env?.[pathEnvironmentKey], process.env[pathEnvironmentKey]);
 assert.equal(buildCalls[1].env?.EUC_PERFORMANCE_DIAGNOSTICS, "true");
 
 function run(summaryValue: number, warmup = false): Record<string, unknown> {

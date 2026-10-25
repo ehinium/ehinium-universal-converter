@@ -260,6 +260,7 @@ export function useSettingsController(
     iranianStatusRequestIdRef.current = requestId;
 
     if (!required) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset status when the external rate subscription is no longer required.
       setIranianBridgeStatus(notRequiredIranianBridgeStatus);
       return;
     }

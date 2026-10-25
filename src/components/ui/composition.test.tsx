@@ -4,6 +4,7 @@ import { Input } from "./input";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "./item";
 import { Button } from "./button";
 import { Card, CardContent } from "./card";
+import { Separator } from "./separator";
 import { createElement, expect, expectEqual, mount } from "./test-harness";
 
 let view = await mount(
@@ -28,6 +29,16 @@ expectEqual(input.getAttribute("aria-describedby"), "field-help field-error", "F
 expectEqual(document.querySelector('[data-slot="field-error"]')?.getAttribute("role"), "alert", "Field error semantics");
 expect(document.body.textContent?.includes("Target is required."), "Field error renders");
 await view.unmount();
+
+for (const orientation of ["horizontal", "vertical"] as const) {
+  view = await mount(createElement(Separator, { orientation, decorative: false }));
+  const separator = document.querySelector<HTMLElement>('[data-slot="separator"]');
+  expect(separator, "separator renders");
+  expectEqual(separator.dataset.orientation, orientation, "Radix exposes separator orientation");
+  const dimension = orientation === "horizontal" ? "h-px" : "w-px";
+  expect(separator.className.includes(`data-[orientation=${orientation}]:${dimension}`), "separator dimensions match Radix orientation without custom variants");
+  await view.unmount();
+}
 
 view = await mount(createElement(Card, null, createElement(CardContent, null, "Compact content")));
 const card = document.querySelector<HTMLElement>('[data-slot="card"]');
