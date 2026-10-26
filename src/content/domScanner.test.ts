@@ -44,3 +44,33 @@ hidden.textContent = "USD 100";
 document.body.append(hidden);
 
 expectEqual(isHiddenOrDisconnectedRoot(hidden), true, "hidden root skipped");
+
+// Amazon size/colour swatches: the aria-hidden span is the visible label that
+// the button input names via aria-labelledby, so its text is scanned. Nested
+// aria-hidden fragments and unreferenced aria-hidden content stay excluded.
+document.body.innerHTML = `
+  <span class="a-button"><span class="a-button-inner">
+    <input class="a-button-input" type="submit" aria-labelledby="size_name_0-announce">
+    <span id="size_name_0-announce" class="a-button-text" aria-hidden="true">
+      <span class="swatch-title-text-display">52" x 52" (Square)</span>
+      <span class="a-price"><span aria-hidden="true">$17.91</span></span>
+    </span>
+  </span></span>
+  <span id="decorative" aria-hidden="true">70" (Round)</span>
+`;
+const swatchLabel = document.getElementById("size_name_0-announce") as unknown as Element;
+expectEqual(
+  getTextNodes(swatchLabel).map((node) => node.textContent?.trim()).filter(Boolean).join("|"),
+  '52" x 52" (Square)',
+  "control label inside aria-hidden is scanned"
+);
+expectEqual(
+  getTextNodes(document.getElementById("decorative") as unknown as Element).length,
+  0,
+  "unreferenced aria-hidden content stays excluded"
+);
+expectEqual(
+  isHiddenOrDisconnectedRoot(swatchLabel.querySelector(".a-price") as Element),
+  false,
+  "aria-hidden alone does not make a mutation root hidden"
+);

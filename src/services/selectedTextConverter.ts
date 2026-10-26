@@ -100,15 +100,18 @@ function convertFirstUnit(
     return null;
   }
 
-  const converted = convertUnit(match.amount, match.unit, targetUnit);
+  const sourceAmounts = match.dimensions ?? [match.amount];
+  const converted = sourceAmounts.map((amount) =>
+    convertUnit(amount, match.unit, targetUnit)
+  );
 
-  if (converted === null || !Number.isFinite(converted)) {
+  if (converted.some((amount) => amount === null || !Number.isFinite(amount))) {
     return null;
   }
 
   return {
-    source: formatSourceUnit(match.amount, match.unit),
-    converted: formatConvertedUnit(converted, targetUnit),
+    source: formatSourceUnit(sourceAmounts, match.unit),
+    converted: formatConvertedUnit(converted as number[], targetUnit),
   };
 }
 

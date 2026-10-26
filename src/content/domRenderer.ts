@@ -198,13 +198,14 @@ export function getCurrencyPlacementSkipReason(
 function getUnitBadgeKey(
   match: UnitMatch,
   targetUnit: UnitCode,
-  convertedAmount: number
+  convertedAmounts: readonly number[]
 ): UnitBadgeKey {
   return {
     sourceUnit: match.unit,
     targetUnit,
     amount: match.amount,
-    convertedAmount,
+    convertedAmount: convertedAmounts[0],
+    ...(match.dimensions ? { dimensions: match.dimensions } : {}),
   };
 }
 
@@ -388,24 +389,26 @@ function renderUnitConversions(
         continue;
       }
 
-      const convertedAmount = convertUnit(match.amount, match.unit, targetUnit);
+      const sourceAmounts = match.dimensions ?? [match.amount];
+      const convertedAmounts = sourceAmounts.map((amount) =>
+        convertUnit(amount, match.unit, targetUnit)
+      );
 
       if (
-        convertedAmount === null ||
-        !Number.isFinite(convertedAmount)
+        convertedAmounts.some((amount) => amount === null || !Number.isFinite(amount))
       ) {
         continue;
       }
 
-      const formattedAmount = formatConvertedUnit(convertedAmount, targetUnit);
+      const formattedAmount = formatConvertedUnit(convertedAmounts as number[], targetUnit);
 
       if (normalizeDisplayText(formattedAmount) === normalizeDisplayText(match.raw)) {
         continue;
       }
 
-      const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmount);
+      const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmounts as number[]);
       const formattedTooltip = formatTooltip(
-        formatSourceUnit(match.amount, match.unit),
+        formatSourceUnit(sourceAmounts, match.unit),
         formattedAmount
       );
 

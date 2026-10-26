@@ -2,9 +2,9 @@ import {
   getContentExclusionDetail,
 } from "./domExclusions";
 
-const EXCLUDED_TEXT_NODE_SELECTORS = [
+const ARIA_HIDDEN_SELECTOR = '[aria-hidden="true"]';
+const HIDDEN_ROOT_SELECTORS = [
   ".a-offscreen",
-  '[aria-hidden="true"]',
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
@@ -12,8 +12,40 @@ const EXCLUDED_TEXT_NODE_SELECTORS = [
   '[data-euc-badge="true"]',
   "[data-ehinium-tooltip]",
 ];
+const EXCLUDED_TEXT_NODE_SELECTORS = [...HIDDEN_ROOT_SELECTORS, ARIA_HIDDEN_SELECTOR];
 
-const EXCLUDED_TEXT_NODE_SELECTOR = EXCLUDED_TEXT_NODE_SELECTORS.join(", ");
+// aria-hidden only removes content from the accessibility tree; it is not a
+// visibility signal. Roots inside it still reach currency discovery, which
+// applies its own visual checks to aria-hidden fragments.
+const HIDDEN_ROOT_SELECTOR = HIDDEN_ROOT_SELECTORS.join(", ");
+
+const controlLabelCache = new WeakMap<Element, boolean>();
+
+/**
+ * Amazon renders swatch and size button text inside an aria-hidden span that
+ * the button's input names through aria-labelledby. That span is the visible
+ * label of the control, not a decorative duplicate.
+ */
+function isVisibleControlLabel(element: Element): boolean {
+  const cached = controlLabelCache.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const id = element.id.replace(/["\\]/gu, "\\$&");
+  const isLabel = id !== "" &&
+    element.ownerDocument.querySelector(`[aria-labelledby~="${id}"]`) !== null;
+  controlLabelCache.set(element, isLabel);
+  return isLabel;
+}
+
+function closestExcludedAriaHidden(element: Element): Element | null {
+  let current = element.closest(ARIA_HIDDEN_SELECTOR);
+  while (current && isVisibleControlLabel(current)) {
+    current = current.parentElement?.closest(ARIA_HIDDEN_SELECTOR) ?? null;
+  }
+  return current;
+}
 
 export type TextNodeScanOptions = {
   maxNodes?: number;
@@ -44,7 +76,9 @@ export function getTextNodeScanExclusion(node: Text): TextNodeScanExclusion | nu
   }
 
   for (const selector of EXCLUDED_TEXT_NODE_SELECTORS) {
-    const excludedAncestor = parent.closest(selector);
+    const excludedAncestor = selector === ARIA_HIDDEN_SELECTOR
+      ? closestExcludedAriaHidden(parent)
+      : parent.closest(selector);
     if (excludedAncestor) {
       return {
         reason: `Matched scanner exclusion selector ${selector} on <${excludedAncestor.tagName.toLowerCase()}>`,
@@ -81,7 +115,7 @@ export function isHiddenOrDisconnectedRoot(root: Node): boolean {
   }
 
   return (
-    root.closest(EXCLUDED_TEXT_NODE_SELECTOR) !== null ||
+    root.closest(HIDDEN_ROOT_SELECTOR) !== null ||
     root.closest("[hidden]") !== null ||
     root.closest('[style*="display: none"]') !== null ||
     root.closest('[style*="display:none"]') !== null

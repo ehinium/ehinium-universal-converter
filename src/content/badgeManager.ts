@@ -28,6 +28,7 @@ export type UnitBadgeKey = {
   targetUnit: string;
   amount: number;
   convertedAmount: number;
+  dimensions?: readonly number[];
 };
 
 type BadgeIdentity = BadgeKey | UnitBadgeKey;
@@ -226,7 +227,10 @@ export function serializeBadgeKey(key: BadgeIdentity): string {
   const normalizedAmount = normalizeAmount(key.amount);
 
   if ("sourceUnit" in key) {
-    return `unit|${normalizedAmount}|${key.sourceUnit}|${key.targetUnit}|${normalizeAmount(key.convertedAmount)}`;
+    const dimensions = key.dimensions
+      ? `|${key.dimensions.map(normalizeAmount).join("x")}`
+      : "";
+    return `unit|${normalizedAmount}|${key.sourceUnit}|${key.targetUnit}|${normalizeAmount(key.convertedAmount)}${dimensions}`;
   }
 
   return `${normalizedAmount}|${key.sourceCurrency}|${key.targetCurrency}`;

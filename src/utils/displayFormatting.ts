@@ -46,8 +46,13 @@ export function formatSourceCurrency(amount: number, currency: string): string {
   return `${formatReadableNumber(amount)} ${currency.toUpperCase()}`;
 }
 
-export function formatSourceUnit(amount: number, unit: UnitCode): string {
-  return `${formatReadableNumber(amount)} ${formatUnitLabel(unit)}`;
+/** Accepts one amount or the amounts of a dimension such as `60 × 84`. */
+export function formatSourceUnit(
+  amount: number | readonly number[],
+  unit: UnitCode
+): string {
+  const amounts = typeof amount === "number" ? [amount] : amount;
+  return `${amounts.map(formatReadableNumber).join(" × ")} ${formatUnitLabel(unit)}`;
 }
 
 export function formatConvertedCurrency(
@@ -81,10 +86,17 @@ export function formatConvertedCurrency(
   }
 }
 
-export function formatConvertedUnit(amount: number, unit: UnitCode): string {
-  const formattedAmount = new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: getUnitMaximumFractionDigits(amount),
-  }).format(amount);
+/** Accepts one amount or the amounts of a dimension such as `152.4 × 213.36`. */
+export function formatConvertedUnit(
+  amount: number | readonly number[],
+  unit: UnitCode
+): string {
+  const amounts = typeof amount === "number" ? [amount] : amount;
+  const formattedAmounts = amounts.map((value) =>
+    new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: getUnitMaximumFractionDigits(value),
+    }).format(value)
+  );
 
-  return `${formattedAmount} ${formatUnitLabel(unit)}`;
+  return `${formattedAmounts.join(" × ")} ${formatUnitLabel(unit)}`;
 }

@@ -28,6 +28,8 @@ export type UnitMatch = {
   amount: number;
   unit: UnitCode;
   category: UnitCategory;
+  /** Every amount of a dimension expression such as `60" x 84"`; `amount` is the first. */
+  dimensions?: readonly number[];
 };
 
 export const unitDefinitions: readonly UnitDefinition[] = [
