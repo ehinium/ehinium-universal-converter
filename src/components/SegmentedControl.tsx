@@ -1,5 +1,6 @@
 import * as React from "react";
-import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
+import { RadioGroup } from "./ui/radio-group";
 import { cn } from "../lib/utils";
 
 export type SegmentedControlItem<Value extends string> = {
@@ -47,7 +48,8 @@ export function SegmentedControl<Value extends string>({
     >
       {items.map((item) => (
         <label key={item.value} className="min-w-0">
-          <RadioGroupItem value={item.value} className="peer sr-only" />
+          {/* Unstyled primitive: the styled RadioGroupItem's position and size utilities override sr-only. */}
+          <RadioGroupPrimitive.Item data-slot="radio-group-item" value={item.value} className="peer sr-only" />
           <span className={cn(
             "flex h-8 w-full cursor-default items-center justify-center rounded-md bg-transparent px-3 text-[13px] font-medium text-muted-foreground transition-[color,background-color,box-shadow] hover:bg-accent hover:text-accent-foreground peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 peer-disabled:pointer-events-none peer-disabled:opacity-50",
             value === item.value && "bg-background text-foreground shadow-sm hover:bg-background hover:text-foreground"

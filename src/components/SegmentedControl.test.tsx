@@ -37,6 +37,7 @@ expect(group.className.includes("rounded-lg"), "consistent outer radius");
 expect(group.className.includes("p-1"), "even 4px outer padding");
 expectEqual(Array.from(document.querySelectorAll("label > span")).map((item) => item.textContent).join(","), "Currency,Units,Everything", "mode labels");
 expectEqual(items[1].getAttribute("data-state"), "checked", "legacy units selection");
+expect(items.every((item) => item.className === "peer sr-only"), "hidden radios carry no layout utilities that override sr-only");
 const segments = Array.from(document.querySelectorAll<HTMLElement>("label > span"));
 expect(segments.every((segment) => segment.className.includes("h-8") && segment.className.includes("w-full")), "equal compact segment geometry");
 expect(segments[1].className.includes("bg-background") && segments[1].className.includes("text-foreground"), "selected segment uses a raised neutral surface");
