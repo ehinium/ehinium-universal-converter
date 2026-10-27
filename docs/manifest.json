@@ -31,7 +31,7 @@
   "host_permissions": [
     "https://api.frankfurter.dev/*",
     "https://cdn.jsdelivr.net/*",
-    "https://ehinium-rates-api.ehinium.workers.dev/*"
+    "https://api.euc.tools/*"
   ],
   "content_scripts": [
     {

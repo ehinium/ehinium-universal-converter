@@ -14,7 +14,7 @@ const allowedPermissions = ["storage", "activeTab", "contextMenus"];
 const allowedHostPermissions = [
   "https://api.frankfurter.dev/*",
   "https://cdn.jsdelivr.net/*",
-  "https://ehinium-rates-api.ehinium.workers.dev/*",
+  "https://api.euc.tools/*",
 ];
 const requiredIconSizes = new Set(["16", "32", "48", "128"]);
 const allowSourceMaps = process.env.ALLOW_RELEASE_SOURCEMAPS === "true";

@@ -3,8 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 
-const iranianRatesApiUrl =
-  "https://ehinium-rates-api.ehinium.workers.dev/v1/rates";
+const iranianRatesApiUrl = "https://api.euc.tools/v1/rates";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
