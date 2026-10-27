@@ -7,7 +7,7 @@ const EXTENSION_TITLE_OWNER_SELECTOR =
   "[data-ehinium-badge], [data-ehinium-hover], [data-ehinium-converted]";
 
 let hoverTargets = new WeakMap<HTMLElement, HoverTarget>();
-let hoverIdentities = new WeakMap<HTMLElement, Set<string>>();
+let hoverIdentities = new WeakMap<HTMLElement, Map<string, string>>();
 
 export function removeExtensionOwnedTitle(element: HTMLElement): void {
   if (element.matches(EXTENSION_TITLE_OWNER_SELECTOR)) {
@@ -58,24 +58,30 @@ export function getClosestHoverTarget(element: HTMLElement): HoverTarget | null 
   return null;
 }
 
+/**
+ * `combine` keeps every conversion registered on the element, one per line:
+ * a swatch tile whose price and list price both lost their badges shows both.
+ * Otherwise the latest conversion replaces the tooltip.
+ */
 export function registerHoverConversionTarget(
   element: HTMLElement,
   content: string,
-  identity: string
+  identity: string,
+  combine = false
 ): boolean {
-  const identities = hoverIdentities.get(element) ?? new Set<string>();
+  const conversions = hoverIdentities.get(element) ?? new Map<string, string>();
 
-  if (identities.has(identity)) {
+  if (conversions.has(identity)) {
     return false;
   }
 
-  identities.add(identity);
-  hoverIdentities.set(element, identities);
-  registerHoverTarget(element, content);
+  conversions.set(identity, content);
+  hoverIdentities.set(element, conversions);
+  registerHoverTarget(element, combine ? [...conversions.values()].join("\n") : content);
   return true;
 }
 
 export function clearHoverTargets(): void {
   hoverTargets = new WeakMap<HTMLElement, HoverTarget>();
-  hoverIdentities = new WeakMap<HTMLElement, Set<string>>();
+  hoverIdentities = new WeakMap<HTMLElement, Map<string, string>>();
 }

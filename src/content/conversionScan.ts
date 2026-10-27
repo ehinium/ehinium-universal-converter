@@ -21,6 +21,7 @@ import {
   type CurrencyDomMatch,
 } from "./currencyDomMatches";
 import { detectGroupedPricesInRoots } from "./groupedPriceDetector";
+import { refreshPageCurrencyContext } from "./pageCurrencyContext";
 import { incrementPerfCounter, measurePerf, measurePerfAsync } from "./perfDiagnostics";
 
 export type ConversionScanResult = {
@@ -145,6 +146,7 @@ export async function scanConversionRoots(
   const render = dependencies.renderConversions ?? renderConversions;
   const writeDebug = dependencies.debugLog ?? debugLog;
   const roots = request.roots ?? [document.body];
+  refreshPageCurrencyContext();
   const perfDiagnosticsEnabled = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
   const textNodes = perfDiagnosticsEnabled
     ? await measurePerfAsync("candidate-discovery", () => collect(roots))

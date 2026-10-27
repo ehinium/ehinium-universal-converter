@@ -21,6 +21,12 @@ export default defineConfig(({ mode }) => {
     process.env.EUC_IRANIAN_RATES_TOKEN ??
     "";
   const outputDirectory = performanceDiagnosticsEnabled ? "dist-perf" : "dist";
+  if (!iranianRatesToken && !isContentBuild && mode === "production") {
+    console.warn(
+      "\n[EUC] EUC_IRANIAN_RATES_TOKEN is not set: this build cannot load Iranian (IRT) rates, " +
+      "so toman and rial prices will not convert. Set it in .env.local (see README).\n"
+    );
+  }
 
   return {
     plugins: [react(), tailwindcss()],

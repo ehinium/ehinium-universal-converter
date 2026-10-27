@@ -7,7 +7,7 @@ import {
   removeExtensionOwnedTitles,
 } from "./hoverRegistry";
 import type { BadgeStyle } from "../types/settings";
-import { markBadgeRemovalIntentional } from "./badgeLifecycle";
+import { markBadgeRemovalIntentional, markMovedByExtension } from "./badgeLifecycle";
 import {
   createProtectedBadgeHost,
   forgetBadgeHost,
@@ -28,6 +28,8 @@ export type UnitBadgeKey = {
   targetUnit: string;
   amount: number;
   convertedAmount: number;
+  dimensions?: readonly number[];
+  range?: readonly number[];
 };
 
 type BadgeIdentity = BadgeKey | UnitBadgeKey;
@@ -215,6 +217,35 @@ function applyBadgeColorContext(
   );
 }
 
+// The default badge tint over white, made opaque: the same look on a white
+// page, readable on a coloured one and on one the page changes later.
+const OPAQUE_BADGE_COLOR = "rgb(17, 24, 39)";
+const OPAQUE_BADGE_BACKGROUND = "rgb(237, 238, 240)";
+
+function isLightColor(color: ParsedColor): boolean {
+  return (0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue) / 255 > 0.5;
+}
+
+/**
+ * A badge moved out of its source's box can land on another background (the
+ * blue rim of a selected swatch tile), which computed colours cannot always
+ * tell: a gradient leaves the background colour transparent. It takes an
+ * opaque light pill, unless its source is light text on a dark page.
+ */
+export function refreshBadgeColorContext(badge: HTMLElement, sourceElement: HTMLElement): void {
+  const badgeParent = badge.parentElement;
+  if (!badgeParent) return;
+  const context = getBadgeColorContext(sourceElement, badgeParent);
+  const sourceStyle = readComputedStyle(sourceElement);
+  const sourceColor = sourceStyle ? parseCssColor(sourceStyle.color) : null;
+  const minimal = badge.getAttribute("data-ehinium-badge-style") === "minimal";
+  if (context?.isSharedBackground && sourceColor && isLightColor(sourceColor)) {
+    setBadgeColorVariables(badge, context.textColor, minimal ? null : context.backgroundColor);
+    return;
+  }
+  setBadgeColorVariables(badge, OPAQUE_BADGE_COLOR, minimal ? null : OPAQUE_BADGE_BACKGROUND);
+}
+
 function normalizeAmount(amount: number): string {
   return amount
     .toFixed(6)
@@ -226,7 +257,10 @@ export function serializeBadgeKey(key: BadgeIdentity): string {
   const normalizedAmount = normalizeAmount(key.amount);
 
   if ("sourceUnit" in key) {
-    return `unit|${normalizedAmount}|${key.sourceUnit}|${key.targetUnit}|${normalizeAmount(key.convertedAmount)}`;
+    const dimensions = key.dimensions
+      ? `|${key.dimensions.map(normalizeAmount).join("x")}`
+      : key.range ? `|${key.range.map(normalizeAmount).join("-")}` : "";
+    return `unit|${normalizedAmount}|${key.sourceUnit}|${key.targetUnit}|${normalizeAmount(key.convertedAmount)}${dimensions}`;
   }
 
   return `${normalizedAmount}|${key.sourceCurrency}|${key.targetCurrency}`;
@@ -343,6 +377,7 @@ function insertIntoPriceGroup(
 
   const group = createPriceGroup();
 
+  markMovedByExtension(sourcePrice);
   sourcePrice.replaceWith(group);
   group.append(sourcePrice, badge);
   return true;
@@ -364,9 +399,14 @@ export function insertBadgeAfter(
   );
 }
 
+/**
+ * Inserts after `node`, or after `previous` (an earlier badge for the same
+ * text) so several badges of one text node keep the source order.
+ */
 export function insertBadgeAfterTextNode(
   node: Text,
-  badge: HTMLElement
+  badge: HTMLElement,
+  previous?: HTMLElement | null
 ): void {
   const parent = node.parentElement;
 
@@ -374,7 +414,13 @@ export function insertBadgeAfterTextNode(
     return;
   }
 
-  parent.insertBefore(badge, node.nextSibling);
+  // After an earlier badge of the same text (which may sit after a clipping box).
+  if (previous?.isConnected && previous.parentElement !== parent) {
+    previous.insertAdjacentElement("afterend", badge);
+  } else {
+    const reference = previous?.isConnected ? previous : node;
+    parent.insertBefore(badge, reference.nextSibling);
+  }
 
   applyBadgeColorContext(
     badge,
@@ -429,7 +475,9 @@ function unwrapEmptyPriceGroups(root: ParentNode): void {
 
   for (const group of groups) {
     if (!group.querySelector(BADGE_SELECTOR)) {
-      group.replaceWith(...Array.from(group.childNodes));
+      const children = Array.from(group.childNodes);
+      for (const child of children) markMovedByExtension(child);
+      group.replaceWith(...children);
     }
   }
 }

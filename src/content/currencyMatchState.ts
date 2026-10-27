@@ -1,6 +1,6 @@
 import { parseCurrencies } from "../utils/currencyParser";
 import {
-  collectSourceTextFragments,
+  sourceTextOf,
   type CurrencyDomMatch,
 } from "./currencyDomMatches";
 import { findExistingLineageBadges } from "./translationLineage";
@@ -160,9 +160,8 @@ function getOccurrenceIndex(candidate: CurrencyDomMatch): number {
 
 function getOwnership(candidate: CurrencyDomMatch, targetCurrency: string) {
   const scope = getReconciliationScope(candidate);
-  const sourceCollection = collectSourceTextFragments(scope);
   const scopeFingerprint = hashText(
-    `${scope.tagName}|${normalizeSourceText(sourceCollection.input)}`
+    `${scope.tagName}|${normalizeSourceText(sourceTextOf(scope))}`
   );
   const ownerPositionKey = hashText([
     getScopeId(scope),

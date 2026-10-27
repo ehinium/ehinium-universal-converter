@@ -93,7 +93,9 @@ function hasMalformedCommaOrDotGrouping(value: string): boolean {
 export function normalizeNumberToken(raw: string): NormalizedNumber | null {
   let normalized = normalizeDigits(raw)
     .replace(/٬/g, ",")
-    .replace(/٫/g, ".");
+    .replace(/٫/g, ".")
+    // The typographic minus "−" is a minus sign.
+    .replace(/^−/u, "-");
 
   const sign = normalized.startsWith("-") ? -1 : 1;
   normalized = normalized.replace(/^[+-]/u, "");

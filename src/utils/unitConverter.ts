@@ -28,6 +28,14 @@ const weightInGrams: Readonly<Record<Extract<UnitCode, "mg" | "g" | "kg" | "oz" 
   lb: 453.59237,
 };
 
+const volumeInMilliliters: Readonly<Record<Extract<UnitCode, "ml" | "cl" | "l" | "floz" | "gal">, number>> = {
+  ml: 1,
+  cl: 10,
+  l: 1000,
+  floz: 29.5735295625,
+  gal: 3785.411784,
+};
+
 const defaultTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   kg: "lb",
   g: "oz",
@@ -39,6 +47,8 @@ const defaultTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   mi: "km",
   c: "f",
   f: "c",
+  floz: "ml",
+  gal: "l",
 };
 
 const metricTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
@@ -49,6 +59,8 @@ const metricTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   oz: "g",
   lb: "kg",
   f: "c",
+  floz: "ml",
+  gal: "l",
 };
 
 const imperialTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
@@ -60,6 +72,9 @@ const imperialTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   g: "oz",
   kg: "lb",
   c: "f",
+  ml: "floz",
+  cl: "floz",
+  l: "gal",
 };
 
 function convertTemperature(
@@ -101,11 +116,20 @@ export function convertUnit(
     return convertTemperature(amount, fromUnit, toUnit);
   }
 
-  const factors = category === "length" ? lengthInMeters : weightInGrams;
+  const factors = category === "length"
+    ? lengthInMeters
+    : category === "weight" ? weightInGrams : volumeInMilliliters;
   const fromFactor = factors[fromUnit as keyof typeof factors];
   const toFactor = factors[toUnit as keyof typeof factors];
 
   return fromFactor && toFactor ? amount * fromFactor / toFactor : null;
+}
+
+/** The system a unit belongs to: metric units convert to imperial ones and back. */
+export function unitSystemOf(unit: UnitCode): "metric" | "imperial" | null {
+  if (unit in imperialTargets) return "metric";
+  if (unit in metricTargets) return "imperial";
+  return null;
 }
 
 export function getDefaultTargetUnit(unit: UnitCode): UnitCode | null {

@@ -12,6 +12,7 @@ import type {
 } from "../types/diagnostics";
 import type { UserSettings } from "../types/settings";
 import { parseCurrencies } from "../utils/currencyParser";
+import { lazy } from "../utils/lazy";
 import { getContentExclusionReason } from "./domExclusions";
 import {
   getTextNodeScanExclusion,
@@ -69,7 +70,8 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-const currencyIdentifierRegex = new RegExp(
+// Only a diagnostics capture needs it, so page loads do not pay for building it.
+const currencyIdentifierRegex = lazy(() => new RegExp(
   `(?:${[
     ...new Set(fiatCurrencies.flatMap((currency) => [currency.code, ...currency.symbols])),
   ]
@@ -78,7 +80,7 @@ const currencyIdentifierRegex = new RegExp(
     .map(escapeRegex)
     .join("|")})`,
   "iu"
-);
+));
 
 function truncate(value: string, maximum = MAX_FRAGMENT_TEXT): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
@@ -206,7 +208,7 @@ function isVisibleElement(element: Element): boolean {
 }
 
 function looksPriceLike(text: string): boolean {
-  return /[0-9٠-٩۰-۹]/u.test(text) && currencyIdentifierRegex.test(text);
+  return /[0-9٠-٩۰-۹]/u.test(text) && currencyIdentifierRegex().test(text);
 }
 
 function findPriceContextElement(node: Text): HTMLElement | null {

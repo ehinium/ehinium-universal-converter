@@ -1,4 +1,5 @@
 import { forgetBadgeHost, getBadgeVisibleText, isProtectedBadgeHost } from "./badgeHost";
+import { markBadgeRemovalIntentional } from "./badgeLifecycle";
 
 export type BadgeHostRenderMode = "inline" | "overlay" | "legacy";
 
@@ -93,9 +94,18 @@ function versionOf(host: HTMLElement): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function quotedAttributeValue(value: string): string {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(value)
+    : value.replace(/["\\]/gu, "\\$&");
+}
+
 function hostsForKey(key: string): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>('[data-euc-badge-host="true"][data-euc-source-key]')]
-    .filter((host) => host.dataset.eucSourceKey === key && host.isConnected);
+  // An exact-value selector lets the browser filter, instead of copying every
+  // badge host on the page into an array once per key.
+  return [...document.querySelectorAll<HTMLElement>(
+    `[data-euc-badge-host="true"][data-euc-source-key="${quotedAttributeValue(key)}"]`
+  )].filter((host) => host.isConnected);
 }
 
 function applyIdentity(host: HTMLElement, record: BadgeHostRecord, reason: string, migrationOrigin?: string): void {
@@ -114,6 +124,7 @@ function applyIdentity(host: HTMLElement, record: BadgeHostRecord, reason: strin
 function removeCompeting(host: HTMLElement, reason: string): void {
   host.dataset.eucSuperseded = "true";
   host.dataset.eucRemovalReason = reason;
+  markBadgeRemovalIntentional(host);
   removeHost(host, reason);
 }
 

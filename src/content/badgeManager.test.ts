@@ -5,10 +5,11 @@ import {
   getBadgeColorContext,
   insertBadgeAfter,
   insertBadgeAfterTextNode,
+  refreshBadgeColorContext,
   removeBadges,
   serializeBadgeKey,
 } from "./badgeManager";
-import { getHoverTarget, registerHoverTarget } from "./hoverRegistry";
+import { getHoverTarget, registerHoverConversionTarget, registerHoverTarget } from "./hoverRegistry";
 
 const window = new Window();
 
@@ -406,4 +407,54 @@ expectEqual(
     "minimal badge derived translucent text color"
   );
   expectEqual(badge.style.getPropertyValue("--euc-badge-background"), "", "minimal badge uses shadow background");
+}
+
+// Amazon UK swatches: a badge moved out of the tile's inner box lands on the
+// tile's rim, blue once the swatch is selected (the inner box only looks white).
+// It takes an opaque light pill; light text on a dark page keeps its colours.
+{
+  const tile = document.createElement("span");
+  const inner = document.createElement("span");
+  const price = document.createElement("span");
+  const moved = createBadge("$29.41", "21.99 GBP → $29.41");
+
+  tile.style.backgroundColor = "rgb(33, 98, 161)";
+  price.style.color = "rgb(86, 89, 89)";
+  price.textContent = "from £21.99";
+  inner.append(price);
+  tile.append(inner, moved);
+  document.body.append(tile);
+  refreshBadgeColorContext(moved, price);
+  expectEqual(moved.style.getPropertyValue("--euc-badge-color"), "rgb(17, 24, 39)", "moved badge text");
+  expectEqual(moved.style.getPropertyValue("--euc-badge-background"), "rgb(237, 238, 240)", "moved badge takes an opaque pill");
+  tile.remove();
+
+  const darkPage = document.createElement("div");
+  const title = document.createElement("span");
+  const badge = createBadge("81.28 cm", "32 in → 81.28 cm");
+  darkPage.style.backgroundColor = "rgb(20, 20, 20)";
+  title.style.color = "rgb(240, 240, 240)";
+  title.textContent = "32 Inches";
+  darkPage.append(title, badge);
+  document.body.append(darkPage);
+  refreshBadgeColorContext(badge, title);
+  expectEqual(badge.style.getPropertyValue("--euc-badge-color"), "rgb(240, 240, 240)", "light text on a dark page keeps its colour");
+  darkPage.remove();
+}
+
+// A tile whose price and list price both lost their badges shows both on hover;
+// a hover conversion without `combine` replaces the earlier one.
+{
+  const tile = document.createElement("span");
+  const label = document.createElement("span");
+  document.body.append(tile, label);
+  registerHoverConversionTarget(tile, "₹7,999.00 → $84.22", "7999|INR|USD", true);
+  registerHoverConversionTarget(tile, "₹20,000.00 → $210.57", "20000|INR|USD", true);
+  expectEqual(registerHoverConversionTarget(tile, "₹7,999.00 → $84.22", "7999|INR|USD", true), false, "same conversion registers once");
+  expectEqual(getHoverTarget(tile)?.content, "₹7,999.00 → $84.22\n₹20,000.00 → $210.57", "combined hover conversions");
+  registerHoverConversionTarget(label, "10 kg → 22.05 lb", "unit|10|kg");
+  registerHoverConversionTarget(label, "20 kg → 44.09 lb", "unit|20|kg");
+  expectEqual(getHoverTarget(label)?.content, "20 kg → 44.09 lb", "hover conversion replaced");
+  tile.remove();
+  label.remove();
 }

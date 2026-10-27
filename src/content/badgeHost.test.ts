@@ -5,6 +5,7 @@ import { isExtensionOwnedMutation } from "./observer";
 import {
   getBadgeEncapsulationDiagnostics,
   getBadgeShadowStyleText,
+  getBadgeTextBox,
   getBadgeVisibleText,
   getTranslationProtectionDiagnostics,
   handleBadgeHostMutations,
@@ -134,6 +135,21 @@ document.body.innerHTML = "";
   document.body.append(stale);
   reconcileBadgeHosts(document);
   expectEqual(stale.isConnected, false, "unowned legacy badge is removed");
+}
+
+{
+  // The text box is the badge without its padding (2px 6px by default).
+  const prototypeRect = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "getBoundingClientRect");
+  Object.defineProperty(window.HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ x: 0, y: 10, top: 10, right: 60, bottom: 29.4, left: 0, width: 60, height: 19.4 }),
+  });
+  const badge = createBadge("$12.69", "597 TRY → $12.69");
+  document.body.append(badge);
+  expectEqual(JSON.stringify(getBadgeTextBox(badge)), JSON.stringify({ top: 12, right: 54, bottom: 27.4, left: 6 }), "badge text box");
+  expectEqual(getBadgeTextBox(document.createElement("span")), null, "no text box for a plain element");
+  if (prototypeRect) Object.defineProperty(window.HTMLElement.prototype, "getBoundingClientRect", prototypeRect);
+  else delete (window.HTMLElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
 }
 
 console.log("badge host encapsulation tests passed");

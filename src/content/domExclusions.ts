@@ -14,6 +14,9 @@ const EXCLUDED_CONTENT_SELECTORS = [
   "select",
   "option",
   '[contenteditable="true"]',
+  // Amazon's screen-reader-only copy of swatch prices (opacity: 0, full size),
+  // which duplicates the visible price next to it.
+  ".aok-offscreen",
   "[data-ehinium-converted]",
   "[data-ehinium-badge]",
   `[${EUC_OWNED_ATTRIBUTE}="true"]`,

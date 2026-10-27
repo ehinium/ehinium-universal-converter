@@ -2,9 +2,33 @@ import {
   getContentExclusionDetail,
 } from "./domExclusions";
 
-const EXCLUDED_TEXT_NODE_SELECTORS = [
-  ".a-offscreen",
-  '[aria-hidden="true"]',
+/**
+ * Screen-reader-only copies by their conventional class names. Sites pair
+ * them with the visible text (often marked aria-hidden), so scanning both
+ * would convert one price twice and anchor a badge to invisible text.
+ * aria-hidden itself is not a visibility signal and is scanned normally.
+ * "offscreen" counts only at the end of a class ("a-offscreen", "aok-offscreen"),
+ * not in "offscreen-cart"; Tailwind's "md:not-sr-only" shows the text. Copies
+ * hidden by other names are found by their computed style. This selector runs
+ * in `closest()` for every text node: plain, case-sensitive substrings keep it fast.
+ */
+export const SCREEN_READER_ONLY_SELECTOR = [
+  '[class$="offscreen"]',
+  '[class*="offscreen "]',
+  '[class*="sr-only"]:not([class*="not-sr-only"])',
+  '[class*="sr_only"]',
+  ".sr_true",
+  '[class*="sr-text"]',
+  '[class*="visually-hidden"]',
+  '[class*="visuallyhidden"]',
+  '[class*="screen-reader"]',
+  '[class*="screenreader"]',
+  '[class*="a11y-hidden"]',
+  '[class*="assistive-text"]',
+].join(", ");
+
+const HIDDEN_ROOT_SELECTORS = [
+  SCREEN_READER_ONLY_SELECTOR,
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
@@ -12,8 +36,8 @@ const EXCLUDED_TEXT_NODE_SELECTORS = [
   '[data-euc-badge="true"]',
   "[data-ehinium-tooltip]",
 ];
-
-const EXCLUDED_TEXT_NODE_SELECTOR = EXCLUDED_TEXT_NODE_SELECTORS.join(", ");
+const EXCLUDED_TEXT_NODE_SELECTORS = HIDDEN_ROOT_SELECTORS;
+const HIDDEN_ROOT_SELECTOR = HIDDEN_ROOT_SELECTORS.join(", ");
 
 export type TextNodeScanOptions = {
   maxNodes?: number;
@@ -81,7 +105,7 @@ export function isHiddenOrDisconnectedRoot(root: Node): boolean {
   }
 
   return (
-    root.closest(EXCLUDED_TEXT_NODE_SELECTOR) !== null ||
+    root.closest(HIDDEN_ROOT_SELECTOR) !== null ||
     root.closest("[hidden]") !== null ||
     root.closest('[style*="display: none"]') !== null ||
     root.closest('[style*="display:none"]') !== null

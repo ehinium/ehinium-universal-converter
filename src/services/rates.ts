@@ -5,6 +5,7 @@ import { getFrankfurterRates } from "./frankfurter";
 import { getErrorMessage, hasRates, normalizeBaseCurrency } from "./rateUtils";
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const STALE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_CACHE_STORAGE_PREFIX = "euc-rate-cache-v1:";
 
 type CachedRates = {
@@ -172,6 +173,10 @@ export async function getExchangeRates(
       response = await getFawazRates(base);
     } catch (fawazError) {
       rateErrors.set(base, Date.now());
+      // Rates a few days old convert far better than no conversion at all.
+      if (cached && Date.now() - cached.fetchedAt <= STALE_CACHE_MAX_AGE_MS) {
+        return cached.response;
+      }
       throw new Error(
         `All exchange-rate providers failed. Frankfurter: ${getErrorMessage(
           frankfurterError

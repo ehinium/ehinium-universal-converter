@@ -13,7 +13,7 @@ import {
   formatSourceUnit,
 } from "../utils/displayFormatting";
 import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
-import { parseUnits } from "../utils/unitParser";
+import { parseUnits, unitMatchAmounts } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
 import { getConversionRatesForPair } from "./conversionRateOrchestrator";
 import { requestIranianBridgeRate } from "./iranianBridgeClient";
@@ -37,7 +37,9 @@ function getTargetUnit(match: UnitMatch, settings: UserSettings): UnitCode | nul
       ? settings.targetLengthUnit
       : match.category === "weight"
         ? settings.targetWeightUnit
-        : settings.targetTemperatureUnit;
+        : match.category === "temperature"
+          ? settings.targetTemperatureUnit
+          : "auto";
 
   return resolveTargetUnit(match.unit, settings.unitSystem, exactTarget);
 }
@@ -88,7 +90,7 @@ function convertFirstUnit(
   text: string,
   settings: UserSettings
 ): ManualConversionResult | null {
-  const match = parseUnits(text)[0];
+  const match = parseUnits(text, { explicit: true })[0];
 
   if (!match) {
     return null;
@@ -100,15 +102,18 @@ function convertFirstUnit(
     return null;
   }
 
-  const converted = convertUnit(match.amount, match.unit, targetUnit);
+  const { amounts: sourceAmounts, joiner } = unitMatchAmounts(match);
+  const converted = sourceAmounts.map((amount) =>
+    convertUnit(amount, match.unit, targetUnit)
+  );
 
-  if (converted === null || !Number.isFinite(converted)) {
+  if (converted.some((amount) => amount === null || !Number.isFinite(amount))) {
     return null;
   }
 
   return {
-    source: formatSourceUnit(match.amount, match.unit),
-    converted: formatConvertedUnit(converted, targetUnit),
+    source: formatSourceUnit(sourceAmounts, match.unit, joiner),
+    converted: formatConvertedUnit(converted as number[], targetUnit, joiner),
   };
 }
 
