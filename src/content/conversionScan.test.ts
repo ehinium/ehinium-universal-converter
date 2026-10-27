@@ -13,6 +13,7 @@ import {
   type ConversionScanDependencies,
 } from "./conversionScan";
 import type { RenderConversionOptions } from "./domRenderer";
+import { getTextNodes } from "./domScanner";
 
 const window = new Window();
 
@@ -116,7 +117,8 @@ function expectEqual<T>(actual: T, expected: T, description: string): void {
     { reason: "mutation", roots: [root] },
     settings({ targetCurrency: "USD", converterMode: "currencies" }),
     {
-      collectTextNodesForScan: async () => [],
+      // aria-hidden text is visible content and comes from the scanner itself.
+      collectTextNodesForScan: async (scanRoots) => scanRoots.flatMap((scanRoot) => getTextNodes(scanRoot)),
       requestIranianBridgeRate: async () => {
         bridgeCalls++;
         return iranianBridge;

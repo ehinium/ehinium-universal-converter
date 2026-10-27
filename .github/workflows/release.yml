@@ -1,0 +1,59 @@
+name: Release
+
+# Pushing a tag such as v1.0.0 builds, checks and publishes the extension package
+# as a GitHub release whose notes come from release-notes/<tag>.md.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Check the tag matches the package version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          manifest="$(node -p "require('./public/manifest.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ] || [ "$manifest" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME, package $version and manifest $manifest must agree." >&2
+            exit 1
+          fi
+          test -f "release-notes/$GITHUB_REF_NAME.md" || { echo "release-notes/$GITHUB_REF_NAME.md is missing." >&2; exit 1; }
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run lint
+
+      - name: Build
+        env:
+          EUC_IRANIAN_RATES_TOKEN: ${{ secrets.EUC_IRANIAN_RATES_TOKEN }}
+        run: |
+          # Without the token the build cannot load Iranian rates; never ship that.
+          test -n "$EUC_IRANIAN_RATES_TOKEN" || { echo "The EUC_IRANIAN_RATES_TOKEN secret is not set." >&2; exit 1; }
+          npm run build
+
+      - run: npm run package:release
+
+      - run: npm run validate:release
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" "release/ehinium-universal-converter-$version.zip" \
+            --title "EUC $GITHUB_REF_NAME" \
+            --notes-file "release-notes/$GITHUB_REF_NAME.md"

@@ -58,6 +58,10 @@ export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// A request that never answers would hold the page scan forever; prices then
+// fall back to the cached rates instead.
+export const RATE_REQUEST_TIMEOUT_MS = 8000;
+
 export async function fetchJson(
   url: string,
   providerName: string
@@ -65,7 +69,7 @@ export async function fetchJson(
   let response: Response;
 
   try {
-    response = await fetch(url);
+    response = await fetch(url, { signal: AbortSignal.timeout(RATE_REQUEST_TIMEOUT_MS) });
   } catch (error) {
     throw new Error(
       `${providerName} request failed: ${getErrorMessage(error)}`,

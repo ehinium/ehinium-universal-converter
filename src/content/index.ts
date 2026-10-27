@@ -20,6 +20,7 @@ import {
   observeDomChanges,
 } from "./observer";
 import { consumeReconciliationCounters } from "./currencyMatchState";
+import { startRevealWatcher } from "./revealWatcher";
 import { hideTooltip, showTooltip } from "./tooltip";
 import { refreshContentSettings } from "./settingsRefresh";
 import {
@@ -106,6 +107,36 @@ function domainIsAllowed(settings: UserSettings | null): boolean {
   return settings !== null && isDomainAllowed(hostname, settings);
 }
 
+const STYLESHEET_WAIT_LIMIT_MS = 1500;
+
+/**
+ * Whether text is a hidden label or a screen-reader copy depends on the page's
+ * styles, so the first scan waits for stylesheets that are still loading
+ * (pages without blocking scripts reach this point before their CSS applies).
+ */
+function waitForPendingStylesheets(): Promise<void> {
+  const pending = [...document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]')]
+    .filter((link) => link.href !== "" && !link.sheet && !link.disabled &&
+      (!link.media || window.matchMedia(link.media).matches) &&
+      // A finished request without a sheet failed; it will not load later.
+      performance.getEntriesByName(link.href).length === 0);
+  if (pending.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    let remaining = pending.length;
+    const timer = window.setTimeout(resolve, STYLESHEET_WAIT_LIMIT_MS);
+    const settle = () => {
+      remaining--;
+      if (remaining > 0) return;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    for (const link of pending) {
+      link.addEventListener("load", settle, { once: true });
+      link.addEventListener("error", settle, { once: true });
+    }
+  });
+}
+
 function startObserver(): void {
   if (
     stopObserver ||
@@ -117,14 +148,20 @@ function startObserver(): void {
 
   startBadgeVisibilityManager();
 
-  stopObserver = observeDomChanges((roots) => {
+  const scheduleRoots = (roots: Node[]) => {
     if (currentSettings?.enabled && domainIsAllowed(currentSettings)) {
       scanScheduler.schedule({
         reason: "mutation",
         roots,
       });
     }
-  });
+  };
+  const stopContentObserver = observeDomChanges(scheduleRoots);
+  const stopRevealWatcher = startRevealWatcher(scheduleRoots);
+  stopObserver = () => {
+    stopContentObserver();
+    stopRevealWatcher();
+  };
 }
 
 function stopObserving(): void {
@@ -495,15 +532,15 @@ async function run(): Promise<void> {
   }
 
   registerHoverListeners();
+  // Observe before the first scan: content rendered while it waits for rates
+  // (product grids, price slots) is queued as a follow-up scan, not lost.
+  startObserver();
+  await waitForPendingStylesheets();
 
-  try {
-    await scanScheduler.flush({
-      reason: "initial",
-      roots: null,
-    });
-  } finally {
-    startObserver();
-  }
+  await scanScheduler.flush({
+    reason: "initial",
+    roots: null,
+  });
 }
 
 void run().catch(logDebugError);

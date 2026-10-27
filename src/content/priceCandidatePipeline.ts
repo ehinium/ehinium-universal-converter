@@ -1,7 +1,8 @@
 import { parseCurrencies } from "../utils/currencyParser";
 import type { CurrencyDomMatch } from "./currencyDomMatches";
-import { collectSourceTextFragments } from "./currencyDomMatches";
+import { sourceTextOf } from "./currencyDomMatches";
 import { markBadgeRemovalIntentional } from "./badgeLifecycle";
+import { rememberHiddenContent } from "./revealWatcher";
 import {
   reconcileBadgeHostsForKey,
   registerAuthoritativeBadgeHost,
@@ -169,11 +170,11 @@ function stableContextFor(match: CurrencyDomMatch): HTMLElement {
   let fallback = match.renderingAnchor;
   for (let depth = 0; current && depth < 5; depth++) {
     fallback = current;
-    const text = normalize(collectSourceTextFragments(current).input);
+    const text = normalize(sourceTextOf(current));
     if (text && text !== matchedText) return current;
     const parent: HTMLElement | null = current.parentElement;
     if (parent) {
-      const parentText = normalize(collectSourceTextFragments(parent).input);
+      const parentText = normalize(sourceTextOf(parent));
       if (parentText && parentText !== matchedText) return current;
     }
     current = parent;
@@ -259,7 +260,7 @@ export function discoverPriceCandidates(
     const descriptor = createRangeDescriptor(match);
     const geometry = rangeGeometry(descriptor, match.renderingAnchor);
     const stableContext = stableContextFor(match);
-    const localContext = normalize(collectSourceTextFragments(stableContext).input).slice(0, 240);
+    const localContext = normalize(sourceTextOf(stableContext)).slice(0, 240);
     const localContextHash = hashText(localContext);
     const root = match.sourceElement.getRootNode();
     if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) continue;
@@ -389,18 +390,27 @@ function validCandidate(
   visibilityCache: WeakMap<HTMLElement, boolean>
 ): boolean {
   if (!candidate.sourceTextNodes.every((node) => node.isConnected) ||
-      !candidate.domMatch.renderingAnchor.isConnected || candidate.boundingRect === null ||
-      (candidate.boundingRect.width <= 1 && candidate.boundingRect.height <= 1)) return false;
+      !candidate.domMatch.renderingAnchor.isConnected) return false;
+  if (candidate.boundingRect === null ||
+      (candidate.boundingRect.width <= 1 && candidate.boundingRect.height <= 1)) {
+    rememberHiddenContent(candidate.domMatch.sourceElement);
+    return false;
+  }
   if (typeof candidate.domMatch.sourceElement.checkVisibility === "function") {
-    return candidate.domMatch.sourceElement.checkVisibility({
+    const visible = candidate.domMatch.sourceElement.checkVisibility({
       checkOpacity: true,
       checkVisibilityCSS: true,
     });
+    if (!visible) rememberHiddenContent(candidate.domMatch.sourceElement);
+    return visible;
   }
   let current: HTMLElement | null = candidate.domMatch.sourceElement;
   while (current) {
     const cachedVisible = visibilityCache.get(current);
-    if (cachedVisible === false) return false;
+    if (cachedVisible === false) {
+      rememberHiddenContent(candidate.domMatch.sourceElement);
+      return false;
+    }
     if (cachedVisible === true) {
       current = current.parentElement;
       continue;
@@ -409,6 +419,7 @@ function validCandidate(
     if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" ||
         (style.opacity !== "" && Number(style.opacity) === 0)) {
       visibilityCache.set(current, false);
+      rememberHiddenContent(candidate.domMatch.sourceElement);
       return false;
     }
     visibilityCache.set(current, true);

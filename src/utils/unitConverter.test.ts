@@ -8,9 +8,10 @@ import type { UnitCode } from "./unitTypes";
 function expectClose(
   actual: number | null,
   expected: number,
-  description: string
+  description: string,
+  tolerance = 1e-9
 ): void {
-  if (actual === null || Math.abs(actual - expected) > 1e-9) {
+  if (actual === null || Math.abs(actual - expected) > tolerance) {
     throw new Error(
       `${description}: expected ${expected}, received ${String(actual)}`
     );
@@ -52,7 +53,17 @@ const expectedDefaultTargets: Readonly<Record<UnitCode, UnitCode | null>> = {
   lb: "kg",
   c: "f",
   f: "c",
+  ml: null,
+  cl: null,
+  l: null,
+  floz: "ml",
+  gal: "l",
 };
+
+expectClose(convertUnit(3.4, "floz", "ml"), 100.55, "fluid ounces to milliliters", 0.01);
+expectClose(convertUnit(1, "gal", "l"), 3.785411784, "gallons to liters");
+expectClose(convertUnit(75, "cl", "floz"), 25.360517, "centiliters to fluid ounces", 0.0001);
+expectEqual(convertUnit(1, "floz", "oz"), null, "volume and weight ounces do not mix");
 
 for (const [unit, expected] of Object.entries(expectedDefaultTargets)) {
   expectEqual(
@@ -70,6 +81,8 @@ const expectedMetricTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   oz: "g",
   lb: "kg",
   f: "c",
+  floz: "ml",
+  gal: "l",
 };
 
 for (const unit of Object.keys(expectedDefaultTargets) as UnitCode[]) {
@@ -88,6 +101,9 @@ const expectedImperialTargets: Readonly<Partial<Record<UnitCode, UnitCode>>> = {
   mg: "oz",
   g: "oz",
   kg: "lb",
+  ml: "floz",
+  cl: "floz",
+  l: "gal",
   c: "f",
 };
 

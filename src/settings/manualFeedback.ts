@@ -33,7 +33,7 @@ export function getManualFeedback(
   }
 
   const currencyMatch = parseCurrencies(input)[0];
-  const unitMatch = parseUnits(input)[0];
+  const unitMatch = parseUnits(input, { explicit: true })[0];
 
   if (currencyMatch) {
     if (settings.converterMode === "units") {

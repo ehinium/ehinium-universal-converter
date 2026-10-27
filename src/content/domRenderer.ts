@@ -17,15 +17,20 @@ import type {
   TargetWeightUnit,
   UnitSystem,
 } from "../types/settings";
-import { convertUnit, resolveTargetUnit } from "../utils/unitConverter";
-import { parseUnits } from "../utils/unitParser";
+import { convertUnit, resolveTargetUnit, unitSystemOf } from "../utils/unitConverter";
+import { parseUnits, unitMatchAmounts } from "../utils/unitParser";
 import type { UnitCode, UnitMatch } from "../utils/unitTypes";
 import {
+  applyBadgeColorContext,
   badgeExists,
   createBadge,
   insertBadgeAfter,
   insertBadgeAfterTextNode,
+  isBadgeAfterTextNode,
   markBadge,
+  moveBadgeAfterTextNode,
+  readBadgeColorContext,
+  refreshBadgeColorContext,
   removeBadges,
   serializeBadgeKey,
   type BadgeKey,
@@ -33,6 +38,9 @@ import {
 } from "./badgeManager";
 import { debugLog } from "./debug";
 import { isInsideExcludedContent } from "./domExclusions";
+import { SCREEN_READER_ONLY_SELECTOR } from "./domScanner";
+import { escapeClippedBadge, isBadgeClipped, type BadgeSource } from "./badgePlacement";
+import { rememberHiddenContent } from "./revealWatcher";
 import {
   detectGroupedPricesForTextNodes,
   detectGroupedPricesInRoots,
@@ -41,6 +49,7 @@ import { evaluateAnchorSafety, selectPriceAnchor } from "./priceAnchor";
 import {
   collectSourceTextFragments,
   discoverCurrencyMatchesInRoots,
+  withSourceTextMemo,
   type CurrencyDomMatch,
 } from "./currencyDomMatches";
 import {
@@ -62,6 +71,7 @@ import {
   discoverPriceCandidates,
   reconcileCanonicalVisualSource,
   registerCanonicalVisualSource,
+  type PriceCandidate,
 } from "./priceCandidatePipeline";
 import { reconcileBadgeHosts } from "./badgeHost";
 import {
@@ -97,7 +107,7 @@ export type RenderConversionOptions = {
   currencyDomMatches?: readonly CurrencyDomMatch[];
 };
 
-const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
+const HIDDEN_PRICE_SELECTOR = SCREEN_READER_ONLY_SELECTOR;
 const UNSAFE_INTERACTIVE_CONTROL_SELECTOR = [
   "input",
   "select",
@@ -126,13 +136,15 @@ function formatTooltip(source: string, converted: string): string {
   return `${source} → ${converted}`;
 }
 
+/** `combine`: the element collects several conversions (clipped prices of one tile). */
 function registerHoverConversion(
   anchor: HTMLElement,
   identity: string,
   content: string,
-  details: Omit<Parameters<typeof debugLog>[0], "type">
+  details: Omit<Parameters<typeof debugLog>[0], "type">,
+  combine = false
 ): boolean {
-  if (!registerHoverConversionTarget(anchor, content, identity)) {
+  if (!registerHoverConversionTarget(anchor, content, identity, combine)) {
     debugLog({
       type: "skip:hover-duplicate",
       ...details,
@@ -198,14 +210,44 @@ export function getCurrencyPlacementSkipReason(
 function getUnitBadgeKey(
   match: UnitMatch,
   targetUnit: UnitCode,
-  convertedAmount: number
+  convertedAmounts: readonly number[]
 ): UnitBadgeKey {
   return {
     sourceUnit: match.unit,
     targetUnit,
     amount: match.amount,
-    convertedAmount,
+    convertedAmount: convertedAmounts[0],
+    ...(match.dimensions ? { dimensions: match.dimensions } : {}),
+    ...(match.range ? { range: match.range } : {}),
   };
+}
+
+// Within this tolerance a stated metric value is the same measurement rounded.
+const EQUIVALENT_MEASUREMENT_TOLERANCE = 0.03;
+
+/**
+ * True when the same text already gives the measurement in the target system,
+ * as in `138 cm (55 inch)` or `1/4” (6.35 mm)`; a badge would only repeat it.
+ */
+function hasEquivalentMeasurement(
+  matches: readonly UnitMatch[],
+  match: UnitMatch,
+  targetUnit: UnitCode,
+  convertedAmounts: readonly number[]
+): boolean {
+  return matches.some((other) => {
+    if (other === match || other.category !== match.category || other.unit === match.unit) return false;
+    // "6 ft (72 in)" states it twice in the same system; a metric reader still needs a badge.
+    if (unitSystemOf(other.unit) !== unitSystemOf(targetUnit)) return false;
+    const otherAmounts = unitMatchAmounts(other).amounts;
+    if (otherAmounts.length !== convertedAmounts.length) return false;
+    return otherAmounts.every((amount, index) => {
+      const inTarget = convertUnit(amount, other.unit, targetUnit);
+      const expected = convertedAmounts[index];
+      return inTarget !== null && expected !== 0 &&
+        Math.abs(inTarget - expected) / Math.abs(expected) <= EQUIVALENT_MEASUREMENT_TOLERANCE;
+    });
+  });
 }
 
 function normalizeDisplayText(value: string): string {
@@ -221,14 +263,6 @@ function shouldSkipUnitNode(node: Text): boolean {
     parent.closest(UNIT_EXCLUDED_SELECTOR) !== null ||
     parent.closest(UNSAFE_INTERACTIVE_CONTROL_SELECTOR) !== null
   );
-}
-
-function isHighConfidenceUnitMatch(match: UnitMatch): boolean {
-  if (match.category !== "temperature") {
-    return true;
-  }
-
-  return /(?:°[cf]|celsius|fahrenheit)\s*$/iu.test(match.raw);
 }
 
 export function isSafeBadgePlacement(anchor: HTMLElement): boolean {
@@ -301,33 +335,206 @@ function isBadgeNearby(anchor: HTMLElement, badge: HTMLElement): boolean {
   return verticalDistance <= MAX_BADGE_VERTICAL_DISTANCE;
 }
 
-function insertGroupedBadgeIfNearby(
-  anchor: HTMLElement,
-  badge: HTMLElement
-): boolean {
-  insertBadgeAfter(anchor, badge);
+/**
+ * "clipped": no nearby place shows the badge (a fixed-size swatch tile); it is
+ * removed and the conversion belongs on `hoverTarget`, the box that cut it off.
+ */
+type BadgePlacementResult =
+  | { status: "placed"; escaped: boolean }
+  | { status: "too-far" }
+  | { status: "clipped"; hoverTarget: HTMLElement };
 
-  if (isBadgeNearby(anchor, badge)) {
-    return true;
+/**
+ * Moves a clipped badge out of its box, then keeps it only when it still sits
+ * next to the price (or next to the box it was moved after). `source` is what
+ * the badge converts, never an element that holds the badge itself.
+ */
+function settleBadgePlacement(anchor: HTMLElement, badge: HTMLElement, source: BadgeSource): BadgePlacementResult {
+  const { escapedAfter, clipped, clippedBy } = escapeClippedBadge(badge, source, anchor);
+  if (clipped) {
+    removeBadges(badge);
+    return { status: "clipped", hoverTarget: clippedBy instanceof HTMLElement ? clippedBy : anchor };
+  }
+  const reference = escapedAfter instanceof HTMLElement ? escapedAfter : anchor;
+
+  if (isBadgeNearby(reference, badge)) {
+    if (escapedAfter) refreshBadgeColorContext(badge, anchor);
+    return { status: "placed", escaped: escapedAfter !== null };
   }
 
   removeBadges(badge);
-  return false;
+  return { status: "too-far" };
 }
 
-function insertTextBadgeIfNearby(
-  node: Text,
-  anchor: HTMLElement,
-  badge: HTMLElement
-): boolean {
-  insertBadgeAfterTextNode(node, badge);
+type PendingPlacement = {
+  badge: HTMLElement;
+  anchor: HTMLElement;
+  source: BadgeSource;
+  /** The element whose colours the badge takes where it was inserted. */
+  colorSource: HTMLElement;
+  /** A badge inserted after the text itself, after the node's earlier badges. */
+  textNode?: Text;
+  /** The text whose next badge follows this one once it is placed. */
+  chainNode?: Text;
+  settled: (result: BadgePlacementResult) => void;
+};
 
-  if (isBadgeNearby(anchor, badge)) {
-    return true;
+type PendingCurrencySource = { priceCandidate: PriceCandidate; badge: HTMLElement };
+
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const values = map.get(key);
+  if (values) values.push(value);
+  else map.set(key, [value]);
+}
+
+/** Both amounts a price is matched by: its candidate's and its parsed match's. */
+function rateKeys(priceCandidate: PriceCandidate): Set<string> {
+  const { match } = priceCandidate.domMatch;
+  return new Set([
+    `${priceCandidate.sourceCurrency}|${priceCandidate.amount}`,
+    `${match.currency}|${match.amount}`,
+  ]);
+}
+
+/**
+ * Prices whose badges wait to be placed. A placed badge records its price, and
+ * the duplicate checks of a later price read those records: the canonical
+ * source (same key, or same amount in the same context), the text lineage
+ * (same amount, badge among the wrappers of the price's text), the owner
+ * position (same anchor) and the records of its text node. A later price those
+ * checks could match waits for the pending badges to settle first.
+ */
+class PendingCurrencySources {
+  private canonicalKeys = new Set<string>();
+  private byRate = new Map<string, PendingCurrencySource[]>();
+  private byAnchor = new Map<HTMLElement, CurrencyDomMatch[]>();
+  private byNode = new Map<Text, CurrencyDomMatch[]>();
+
+  add(priceCandidate: PriceCandidate, badge: HTMLElement): void {
+    const candidate = priceCandidate.domMatch;
+    this.canonicalKeys.add(priceCandidate.canonicalKey);
+    for (const key of rateKeys(priceCandidate)) pushTo(this.byRate, key, { priceCandidate, badge });
+    pushTo(this.byAnchor, candidate.renderingAnchor, candidate);
+    pushTo(this.byNode, candidate.sourceNodes[0], candidate);
   }
 
-  removeBadges(badge);
-  return false;
+  affects(priceCandidate: PriceCandidate): boolean {
+    const candidate = priceCandidate.domMatch;
+    if (this.canonicalKeys.has(priceCandidate.canonicalKey)) return true;
+    for (const key of rateKeys(priceCandidate)) {
+      if (this.byRate.get(key)?.some(({ priceCandidate: other, badge }) =>
+        (other.stableContext === priceCandidate.stableContext && other.localContextHash === priceCandidate.localContextHash) ||
+        other.domMatch.sourceNodes[0] === candidate.sourceNodes[0] ||
+        candidate.sourceNodes.some((node) => badge.parentElement?.contains(node))
+      )) return true;
+    }
+    // Another price of the same text ("$40 to $50") sits at a position of its own.
+    if (this.byAnchor.get(candidate.renderingAnchor)?.some((other) =>
+      other.parserInput !== candidate.parserInput || other.match.start === candidate.match.start
+    )) return true;
+    // Records of the same text node under another text version are stale to it.
+    return this.byNode.get(candidate.sourceNodes[0])?.some((other) => other.parserInput !== candidate.parserInput) ?? false;
+  }
+
+  clear(): void {
+    this.canonicalKeys.clear();
+    this.byRate.clear();
+    this.byAnchor.clear();
+    this.byNode.clear();
+  }
+}
+
+/**
+ * Badges of one render pass are inserted first and measured afterwards, all
+ * against one layout: a layout read right after each insertion would force a
+ * new synchronous layout of the page per badge. Placements then settle in
+ * insertion order. A badge that moves (an escape) or goes away makes the
+ * badges after it measure again, as each did after the ones before it settled.
+ */
+class PlacementBatch {
+  private pending: PendingPlacement[] = [];
+  /** Per text node: its latest badge, placed or still pending. */
+  private latestByNode = new Map<Text, HTMLElement>();
+  /** Per text node: its latest placed badge, which the next one follows. */
+  private placedByNode = new Map<Text, HTMLElement>();
+
+  /** `start` and `end` locate the match in the node's text. */
+  insertText(
+    node: Text,
+    anchor: HTMLElement,
+    badge: HTMLElement,
+    match: { start: number; end: number },
+    settled: PendingPlacement["settled"]
+  ): void {
+    insertBadgeAfterTextNode(node, badge, this.latestByNode.get(node), false);
+    this.add({
+      badge, anchor, source: { node, ...match }, colorSource: node.parentElement ?? anchor,
+      textNode: node, chainNode: node, settled,
+    });
+  }
+
+  /** Inserts after a currency icon that follows the number, still measured against the price. */
+  insertAfterElement(
+    element: HTMLElement,
+    anchor: HTMLElement,
+    badge: HTMLElement,
+    chainNode: Text | undefined,
+    settled: PendingPlacement["settled"]
+  ): void {
+    insertBadgeAfter(element, badge, false);
+    this.add({ badge, anchor, source: element, colorSource: element, chainNode, settled });
+  }
+
+  insertGrouped(
+    anchor: HTMLElement,
+    badge: HTMLElement,
+    chainNode: Text | undefined,
+    settled: PendingPlacement["settled"]
+  ): void {
+    insertBadgeAfter(anchor, badge, false);
+    this.add({ badge, anchor, source: anchor, colorSource: anchor, chainNode, settled });
+  }
+
+  private add(entry: PendingPlacement): void {
+    if (entry.chainNode) this.latestByNode.set(entry.chainNode, entry.badge);
+    this.pending.push(entry);
+  }
+
+  settle(): void {
+    const pending = this.pending;
+    if (pending.length === 0) return;
+    this.pending = [];
+    // Reads only, against the layout that holds every new badge.
+    const colors = pending.map((entry) => readBadgeColorContext(entry.badge, entry.colorSource));
+    const clipped = pending.map((entry) => isBadgeClipped(entry.badge, entry.source, entry.anchor));
+    const nearby = pending.map((entry, index) => !clipped[index] && isBadgeNearby(entry.anchor, entry.badge));
+    pending.forEach((entry, index) => applyBadgeColorContext(entry.badge, colors[index]));
+
+    let layoutChanged = false;
+    for (const [index, entry] of pending.entries()) {
+      const { badge, anchor, source, textNode } = entry;
+      // The badge before it in the same text moved or went away: it follows the
+      // node's latest placed badge, as when it was inserted after that one settled.
+      const previous = textNode ? this.placedByNode.get(textNode) : undefined;
+      if (textNode && !isBadgeAfterTextNode(textNode, badge, previous)) {
+        moveBadgeAfterTextNode(textNode, badge, previous);
+        layoutChanged = true;
+      }
+      let result: BadgePlacementResult;
+      if (layoutChanged || clipped[index]) {
+        result = settleBadgePlacement(anchor, badge, source);
+      } else if (nearby[index]) {
+        result = { status: "placed", escaped: false };
+      } else {
+        removeBadges(badge);
+        result = { status: "too-far" };
+      }
+      if (result.status !== "placed" || result.escaped) layoutChanged = true;
+      if (entry.chainNode && result.status === "placed") this.placedByNode.set(entry.chainNode, badge);
+      entry.settled(result);
+    }
+    this.latestByNode = new Map(this.placedByNode);
+  }
 }
 
 function renderUnitConversions(
@@ -343,24 +550,49 @@ function renderUnitConversions(
   >
 ): number {
   let renderedCount = 0;
-
+  // Parse everything and check every anchor before the first badge goes in:
+  // a layout read after an insertion forces a new synchronous layout of the page.
+  const work: { node: Text; anchor: HTMLElement; matches: UnitMatch[] }[] = [];
   for (const node of textNodes) {
     if (shouldSkipUnitNode(node)) {
       continue;
     }
-
     const text = node.textContent;
     const anchor = node.parentElement;
+    if (!text || !anchor) {
+      continue;
+    }
+    const matches = parseUnits(text);
+    if (matches.length > 0) work.push({ node, anchor, matches });
+  }
+  const safeAnchors = new Map<HTMLElement, boolean>();
+  if (options.badgeVisibility === "always") {
+    for (const { anchor } of work) {
+      if (!safeAnchors.has(anchor)) safeAnchors.set(anchor, isSafeBadgePlacement(anchor));
+    }
+  }
 
-    if (
-      !text ||
-      !anchor ||
-      (options.badgeVisibility === "always" && !isSafeBadgePlacement(anchor))
-    ) {
+  const placements = new PlacementBatch();
+  // A pending badge counts as present for `badgeExists` only once it is placed.
+  const pendingKeys = new Set<string>();
+  for (const { node, anchor, matches } of work) {
+    if (options.badgeVisibility === "always" && !safeAnchors.get(anchor)) {
+      // A hidden tab or variant gets its badges when the page reveals it.
+      if (anchor.isConnected) rememberHiddenContent(anchor);
       continue;
     }
 
-    for (const match of parseUnits(text)) {
+    // Where each measurement sits in the text, to tell whether a box hides it.
+    const text = node.textContent ?? "";
+    let searchFrom = 0;
+    const positions = matches.map((match) => {
+      const start = text.indexOf(match.raw, searchFrom);
+      if (start < 0) return { start: 0, end: text.length };
+      searchFrom = start + match.raw.length;
+      return { start, end: searchFrom };
+    });
+
+    for (const [index, match] of matches.entries()) {
       debugLog({
         type: "match:unit",
         sourceUnit: match.unit,
@@ -368,16 +600,14 @@ function renderUnitConversions(
         text: match.raw,
       });
 
-      if (!isHighConfidenceUnitMatch(match)) {
-        continue;
-      }
-
       const preferredTarget =
         match.category === "length"
           ? options.targetLengthUnit
           : match.category === "weight"
             ? options.targetWeightUnit
-            : options.targetTemperatureUnit;
+            : match.category === "temperature"
+              ? options.targetTemperatureUnit
+              : "auto";
       const targetUnit = resolveTargetUnit(
         match.unit,
         options.unitSystem,
@@ -388,24 +618,38 @@ function renderUnitConversions(
         continue;
       }
 
-      const convertedAmount = convertUnit(match.amount, match.unit, targetUnit);
+      const { amounts: sourceAmounts, joiner } = unitMatchAmounts(match);
+      const convertedAmounts = sourceAmounts.map((amount) =>
+        convertUnit(amount, match.unit, targetUnit)
+      );
 
       if (
-        convertedAmount === null ||
-        !Number.isFinite(convertedAmount)
+        convertedAmounts.some((amount) => amount === null || !Number.isFinite(amount))
       ) {
         continue;
       }
 
-      const formattedAmount = formatConvertedUnit(convertedAmount, targetUnit);
+      if (hasEquivalentMeasurement(matches, match, targetUnit, convertedAmounts as number[])) {
+        debugLog({
+          type: "skip:unit-duplicate",
+          sourceUnit: match.unit,
+          targetUnit,
+          amount: match.amount,
+          text: match.raw,
+          reason: "The text already states this measurement in the target system",
+        });
+        continue;
+      }
+
+      const formattedAmount = formatConvertedUnit(convertedAmounts as number[], targetUnit, joiner);
 
       if (normalizeDisplayText(formattedAmount) === normalizeDisplayText(match.raw)) {
         continue;
       }
 
-      const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmount);
+      const badgeKey = getUnitBadgeKey(match, targetUnit, convertedAmounts as number[]);
       const formattedTooltip = formatTooltip(
-        formatSourceUnit(match.amount, match.unit),
+        formatSourceUnit(sourceAmounts, match.unit, joiner),
         formattedAmount
       );
 
@@ -429,6 +673,11 @@ function renderUnitConversions(
         continue;
       }
 
+      const serializedKey = serializeBadgeKey(badgeKey);
+      if (pendingKeys.has(serializedKey)) {
+        placements.settle();
+        pendingKeys.clear();
+      }
       if (badgeExists(anchor, badgeKey)) {
         debugLog({
           type: "skip:unit-duplicate",
@@ -447,33 +696,58 @@ function renderUnitConversions(
       );
 
       markBadge(badge, badgeKey);
-      if (!insertTextBadgeIfNearby(node, anchor, badge)) {
-        continue;
-      }
-      registerBadgeVisibility(badge, anchor, anchor);
-      registerStandaloneBadgeHost(
-        badge,
-        node,
-        `unit|${serializeBadgeKey(badgeKey)}`,
-        anchor
-      );
+      pendingKeys.add(serializedKey);
+      placements.insertText(node, anchor, badge, positions[index], (placement) => {
+        if (placement.status === "clipped") {
+          // No room beside it (a fixed-size tile): the conversion shows on hover instead.
+          if (registerHoverConversion(placement.hoverTarget, serializedKey, formattedTooltip, {
+            sourceUnit: match.unit,
+            targetUnit,
+            amount: match.amount,
+            formatted: formattedAmount,
+            text: match.raw,
+          }, true)) {
+            renderedCount++;
+          }
+          return;
+        }
+        if (placement.status !== "placed") {
+          return;
+        }
+        registerBadgeVisibility(badge, anchor, anchor);
+        registerStandaloneBadgeHost(
+          badge,
+          node,
+          `unit|${serializedKey}`,
+          anchor
+        );
 
-      debugLog({
-        type: "render:unit-badge",
-        sourceUnit: match.unit,
-        targetUnit,
-        amount: match.amount,
-        formatted: formattedAmount,
-        text: match.raw,
+        debugLog({
+          type: "render:unit-badge",
+          sourceUnit: match.unit,
+          targetUnit,
+          amount: match.amount,
+          formatted: formattedAmount,
+          text: match.raw,
+        });
+        renderedCount++;
       });
-      renderedCount++;
     }
   }
+  placements.settle();
 
   return renderedCount;
 }
 
 export function renderConversions(
+  textNodes: Iterable<Text>,
+  options: RenderConversionOptions
+): number {
+  // Containers shared by many prices are read once per pass, not once per price.
+  return withSourceTextMemo(() => renderConversionsPass(textNodes, options));
+}
+
+function renderConversionsPass(
   textNodes: Iterable<Text>,
   options: RenderConversionOptions
 ): number {
@@ -554,12 +828,35 @@ export function renderConversions(
       incrementPerfCounter("candidatesDiscardedAsDuplicates", Math.max(0, discoveredCandidates.length - canonicalCandidates.length));
     }
     beginVisualSourceReconciliationBatch();
+    const placements = new PlacementBatch();
+    const pendingSources = new PendingCurrencySources();
+    const settlePlacements = () => {
+      placements.settle();
+      pendingSources.clear();
+    };
+    // Layout reads for every candidate happen before the first badge goes in:
+    // a read after an insertion forces a new synchronous layout of the page.
+    // Badges live in shadow roots and add no text, so the answers are unchanged.
+    const placementSkipReasons = new Map(canonicalCandidates.map((priceCandidate) => [
+      priceCandidate,
+      priceCandidate.domMatch.match.amount === 0
+        ? null
+        : getCurrencyPlacementSkipReason(priceCandidate.domMatch.renderingAnchor, options.badgeVisibility),
+    ]));
+    const revalidationReasons = new Map(canonicalCandidates.map((priceCandidate) => [
+      priceCandidate,
+      priceCandidate.discoveryMode === "aggregate-fallback" || priceCandidate.domMatch.match.amount === 0
+        ? null
+        : getCandidateRevalidationReason(priceCandidate.domMatch, options.targetCurrency),
+    ]));
 
     for (const priceCandidate of canonicalCandidates) {
       const candidate = priceCandidate.domMatch;
       const { match } = candidate;
       const anchor = candidate.renderingAnchor;
       const aggregateFallback = priceCandidate.discoveryMode === "aggregate-fallback";
+      // "Pay $0.00" and free shipping need no conversion.
+      if (match.amount === 0) continue;
       debugLog({
         type: aggregateFallback ? "match:grouped" : "match:text",
         sourceCurrency: match.currency,
@@ -579,6 +876,8 @@ export function renderConversions(
         continue;
       }
 
+      // The checks below read what placed badges record about their price.
+      if (pendingSources.affects(priceCandidate)) settlePlacements();
       const canonicalBadge = reconcileCanonicalVisualSource(priceCandidate);
       const duplicateDecision = getDuplicateDecision(
         candidate,
@@ -622,10 +921,7 @@ export function renderConversions(
         continue;
       }
 
-      const placementSkipReason = getCurrencyPlacementSkipReason(
-        anchor,
-        options.badgeVisibility
-      );
+      const placementSkipReason = placementSkipReasons.get(priceCandidate) ?? null;
       if (placementSkipReason) {
         latestCurrencyRenderAccounting.rendererRejectedCandidates++;
         debugLog({
@@ -662,9 +958,7 @@ export function renderConversions(
         formattedAmount
       );
 
-      const revalidationReason = aggregateFallback
-        ? null
-        : getCandidateRevalidationReason(candidate, options.targetCurrency);
+      const revalidationReason = revalidationReasons.get(priceCandidate) ?? null;
       if (revalidationReason) {
         latestCurrencyRenderAccounting.rendererRejectedCandidates++;
         debugLog({
@@ -706,45 +1000,68 @@ export function renderConversions(
       );
 
       markBadge(badge, badgeKey);
-      const inserted =
-        !aggregateFallback && candidate.scanKind === "direct"
-          ? insertTextBadgeIfNearby(candidate.sourceNodes[0], anchor, badge)
-          : insertGroupedBadgeIfNearby(anchor, badge);
-      if (!inserted) {
-        latestCurrencyRenderAccounting.rendererRejectedCandidates++;
+      const sourceNode = candidate.sourceNodes[0];
+      const settled = (placement: BadgePlacementResult): void => {
+        if (placement.status === "clipped") {
+          // No room beside the price (a fixed-size swatch tile): the conversion shows on hover.
+          if (registerHoverConversion(placement.hoverTarget, duplicateDecision.processedMatchKey, formattedTooltip, {
+            sourceCurrency: match.currency,
+            targetCurrency: options.targetCurrency,
+            amount: match.amount,
+            formatted: formattedAmount,
+            text: match.raw,
+          }, true)) {
+            renderedCount++;
+          }
+          return;
+        }
+        if (placement.status !== "placed") {
+          latestCurrencyRenderAccounting.rendererRejectedCandidates++;
+          debugLog({
+            type: "skip:unsafe-placement",
+            sourceCurrency: match.currency,
+            targetCurrency: options.targetCurrency,
+            amount: match.amount,
+            formatted: formattedAmount,
+            text: match.raw,
+            reason: "Text price badge was too far from its anchor",
+          });
+          return;
+        }
+
+        recordProcessedMatch(
+          candidate,
+          options.targetCurrency,
+          badge,
+          duplicateDecision
+        );
+        // Supplemental grouped matches can originate in aria-hidden visual
+        // fragments while their validated rendering anchor is visible.
+        registerBadgeVisibility(badge, anchor, anchor);
+        registerCanonicalVisualSource(priceCandidate, badge);
+
         debugLog({
-          type: "skip:unsafe-placement",
+          type: "render:badge",
           sourceCurrency: match.currency,
           targetCurrency: options.targetCurrency,
           amount: match.amount,
           formatted: formattedAmount,
           text: match.raw,
-          reason: "Text price badge was too far from its anchor",
         });
-        continue;
+        renderedCount++;
+      };
+      // Several prices in one text node ("$40 to $50") keep their source order.
+      const chainNode = candidate.scanKind === "direct" ? sourceNode : undefined;
+      if (!aggregateFallback && candidate.scanKind === "direct") {
+        placements.insertText(sourceNode, anchor, badge, match, settled);
+      } else if (candidate.placementAfter) {
+        placements.insertAfterElement(candidate.placementAfter, anchor, badge, chainNode, settled);
+      } else {
+        placements.insertGrouped(anchor, badge, chainNode, settled);
       }
-
-      recordProcessedMatch(
-        candidate,
-        options.targetCurrency,
-        badge,
-        duplicateDecision
-      );
-      // Supplemental grouped matches can originate in aria-hidden visual
-      // fragments while their validated rendering anchor is visible.
-      registerBadgeVisibility(badge, anchor, anchor);
-      registerCanonicalVisualSource(priceCandidate, badge);
-
-      debugLog({
-        type: "render:badge",
-        sourceCurrency: match.currency,
-        targetCurrency: options.targetCurrency,
-        amount: match.amount,
-        formatted: formattedAmount,
-        text: match.raw,
-      });
-      renderedCount++;
+      pendingSources.add(priceCandidate, badge);
     }
+    settlePlacements();
   }
 
   if (shouldRenderUnits) {

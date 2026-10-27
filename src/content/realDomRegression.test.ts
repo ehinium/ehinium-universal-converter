@@ -651,8 +651,10 @@ for (const [label, markup, expected] of [
       </span>
     </span>
   `);
-  expectEqual(getTextNodes(root).length, 0, "grouped fixture has no eligible text nodes");
-  expectEqual(render(root), 1, "grouped root discovery does not require eligible descendants");
+  // The visual (aria-hidden) fragments are scanned, the offscreen copy is not;
+  // the grouped detector still converts the price exactly once.
+  expectEqual(getTextNodes(root).length, 3, "grouped fixture scans only the visual fragments");
+  expectEqual(render(root), 1, "grouped price renders once");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "hidden-fragment grouped badge count");
 }
 
@@ -684,6 +686,88 @@ for (const [label, markup, expected] of [
   await new Promise((resolve) => setTimeout(resolve, 0));
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "removed and reinserted source rendered once");
   stop();
+}
+
+// Amazon colour swatch: the whole button label is aria-hidden and the price
+// slot is filled asynchronously after the initial scan.
+const amazonSwatchPrice =
+  '<div class="a-section aok-relative">' +
+  '<span class="aok-offscreen apex-pricetopay-accessibility-label"> AED 17.91</span>' +
+  '<span class="a-price a-text-price apex-pricetopay-value"><span class="a-offscreen"></span>' +
+  '<span aria-hidden="true">AED17.91</span></span></div>';
+const amazonSwatch = (slotContent: string) => `
+  <span class="a-button a-button-toggle"><span class="a-button-inner">
+    <input class="a-button-input" type="submit" aria-labelledby="color_name_0-announce">
+    <span id="color_name_0-announce" class="a-button-text" aria-hidden="true">
+      <img alt="Cranberry">
+      <div class="a-section swatch-text"><div id="dimension-slot-info-0" class="dimension-slot-info">${slotContent}</div></div>
+    </span>
+  </span></span>`;
+
+{
+  const root = createRoot(amazonSwatch(amazonSwatchPrice));
+  expectEqual(render(root), 1, "Amazon swatch price renders once");
+  const badge = root.querySelector(BADGE_SELECTOR);
+  expectEqual(badge?.closest(".aok-offscreen") ?? null, null, "Amazon swatch badge is not placed in the screen-reader copy");
+}
+
+{
+  const root = createRoot(amazonSwatch('<div class="loading-indicator-1"></div>'));
+  render(root);
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 0, "Amazon swatch loading state has no badge");
+  const stop = observeDomChanges((roots) => {
+    for (const mutationRoot of roots) {
+      if (mutationRoot instanceof HTMLElement) {
+        renderConversions(getTextNodes(mutationRoot), {
+          enabled: true,
+          targetCurrency: "USD",
+          converterMode: "currencies",
+          badgeStyle: "default",
+          badgeVisibility: "always",
+          unitSystem: "metric",
+          targetLengthUnit: "auto",
+          targetWeightUnit: "auto",
+          targetTemperatureUnit: "auto",
+          scanRoots: [mutationRoot],
+          convertAmount: (match: CurrencyMatch) => match.amount / 10,
+        });
+      }
+    }
+  });
+  (root.querySelector("#dimension-slot-info-0") as HTMLElement).innerHTML = amazonSwatchPrice;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "Amazon swatch price filled inside aria-hidden label is converted");
+  stop();
+}
+
+{
+  const root = createRoot(`
+    <span class="a-button a-button-toggle text-swatch-button"><span class="a-button-inner">
+      <input class="a-button-input" type="submit" aria-labelledby="size_name_0-announce">
+      <span id="size_name_0-announce" class="a-button-text" aria-hidden="true">
+        <span class="swatch-title-text-display"> 52" x 52" (Square) </span>
+      </span>
+    </span></span>
+  `);
+  const rendered = renderConversions(getTextNodes(root), {
+    enabled: true,
+    targetCurrency: "USD",
+    converterMode: "units",
+    badgeStyle: "default",
+    badgeVisibility: "always",
+    unitSystem: "metric",
+    targetLengthUnit: "auto",
+    targetWeightUnit: "auto",
+    targetTemperatureUnit: "auto",
+    scanRoots: [root],
+    convertAmount: () => null,
+  });
+  expectEqual(rendered, 1, "Amazon size button dimension renders");
+  expectEqual(
+    getBadgeVisibleText(root.querySelector(BADGE_SELECTOR) as HTMLElement),
+    "132.08 × 132.08 cm",
+    "Amazon size button dimension badge text"
+  );
 }
 
 const runPerformanceAssertions = process.env.EUC_REAL_DOM_PERFORMANCE_ASSERTIONS === "true";

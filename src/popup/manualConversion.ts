@@ -13,7 +13,7 @@ export function formatManualConversionInput(value: string): string {
   const currencyMatches = parseCurrencies(value).filter((match) =>
     isFullInputMatch(match.raw, value)
   );
-  const unitMatches = parseUnits(value).filter((match) =>
+  const unitMatches = parseUnits(value, { explicit: true }).filter((match) =>
     isFullInputMatch(match.raw, value)
   );
 
