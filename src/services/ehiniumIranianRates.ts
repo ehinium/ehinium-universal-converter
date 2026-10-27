@@ -1,5 +1,7 @@
 import type { IranianBridgeRate } from "../types/rates";
 
+const IRANIAN_RATES_TIMEOUT_MS = 8000;
+
 export type FetchEhiniumIranianRateOptions = {
   apiUrl: string;
   token: string;
@@ -44,6 +46,8 @@ export async function fetchEhiniumIranianRate(
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
+      // Never let an unanswered request hold conversions; cached rates take over.
+      signal: AbortSignal.timeout(IRANIAN_RATES_TIMEOUT_MS),
     });
   } catch {
     throw new Error("Ehinium Iranian rates request failed");

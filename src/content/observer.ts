@@ -3,7 +3,7 @@ import { isHiddenOrDisconnectedRoot } from "./domScanner";
 import { isProcessed } from "./processedNodes";
 import { releaseProcessedSourceTree } from "./currencyMatchState";
 import type { MutationBatchDiagnostic } from "../types/diagnostics";
-import { handleBadgeLifecycleMutations } from "./badgeLifecycle";
+import { consumeExtensionMove, handleBadgeLifecycleMutations, wasBadgeRemovedIntentionally } from "./badgeLifecycle";
 import { handleBadgeHostMutations } from "./badgeHost";
 import { reconcileAffectedBadgeHosts } from "./badgeHostRegistry";
 import { recordMutationBatch } from "./perfDiagnostics";
@@ -17,6 +17,7 @@ const EUC_OWNED_SELECTOR = [
   '[data-euc-badge="true"]',
 ].join(", ");
 
+const BADGE_SELECTOR = '[data-ehinium-badge="true"]';
 let stopActiveObserver: (() => void) | null = null;
 let nextMutationBatchId = 1;
 const mutationDiagnostics: MutationBatchDiagnostic[] = [];
@@ -111,28 +112,57 @@ export function classifyMutationBatch(
   return extensionCount === 0 ? "site-content" : "mixed";
 }
 
-function getMutationRoot(mutation: MutationRecord): Node | null {
+// One record can insert many nodes at once (`append(...cards)`, `innerHTML`, a
+// fragment); each is a root. Past a few dozen, their parent is one cheaper root.
+const MAX_ADDED_ROOTS_PER_MUTATION = 32;
+// A page that strips a badge (React hydration, a re-render) gets it back, but
+// only a few times: a page that keeps removing foreign nodes is not fought.
+const RESTORE_WINDOW_MS = 30_000;
+const MAX_RESTORES_PER_WINDOW = 3;
+const restoreHistory = new WeakMap<Node, number[]>();
+
+function removedBadgeByPage(mutation: MutationRecord): boolean {
+  return [...mutation.removedNodes].some((node) =>
+    node instanceof Element && node.matches(BADGE_SELECTOR) && !node.isConnected &&
+    !wasBadgeRemovedIntentionally(node));
+}
+
+function restoreAllowed(target: Node): boolean {
+  if (!(target instanceof Element) || !isRelevantNode(target)) return false;
+  const now = Date.now();
+  const recent = (restoreHistory.get(target) ?? []).filter((time) => now - time < RESTORE_WINDOW_MS);
+  if (recent.length >= MAX_RESTORES_PER_WINDOW) return false;
+  recent.push(now);
+  restoreHistory.set(target, recent);
+  return true;
+}
+
+function getMutationRoots(mutation: MutationRecord): Node[] {
   if (isEucOwnedNode(mutation.target) || isInsideExcludedContent(mutation.target)) {
-    return null;
+    return [];
   }
 
   if (mutation.type === "characterData") {
-    return mutation.target.parentElement;
+    const parent = mutation.target.parentElement;
+    return parent ? [parent] : [];
   }
 
   for (const node of mutation.removedNodes) {
-    if (!isEucOwnedNode(node)) {
+    // A price moved into a badge group stays on the page.
+    if (!isEucOwnedNode(node) && !consumeExtensionMove(node)) {
       releaseProcessedSourceTree(node);
     }
   }
 
-  for (const node of mutation.addedNodes) {
-    if (isRelevantNode(node)) {
-      return node;
-    }
+  if (removedBadgeByPage(mutation) && restoreAllowed(mutation.target)) {
+    return [mutation.target];
   }
-
-  return null;
+  // A price put back from a badge group is not new content.
+  const added = [...mutation.addedNodes].filter((node) => !consumeExtensionMove(node) && isRelevantNode(node));
+  if (added.length > MAX_ADDED_ROOTS_PER_MUTATION && isRelevantNode(mutation.target)) {
+    return [mutation.target];
+  }
+  return added;
 }
 
 function isRelevantNode(node: Node): boolean {
@@ -144,13 +174,12 @@ function isRelevantNode(node: Node): boolean {
   );
 }
 
-function collectMutationRoots(mutations: readonly MutationRecord[]): Node[] {
+export function collectMutationRoots(mutations: readonly MutationRecord[]): Node[] {
   const roots: Node[] = [];
 
   for (const mutation of mutations) {
-    const root = getMutationRoot(mutation);
-
-    if (root && !roots.some((existing) => existing === root || existing.contains(root))) {
+    for (const root of getMutationRoots(mutation)) {
+      if (roots.some((existing) => existing === root || existing.contains(root))) continue;
       for (let index = roots.length - 1; index >= 0; index--) {
         if (root.contains(roots[index])) roots.splice(index, 1);
       }

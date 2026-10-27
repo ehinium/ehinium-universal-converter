@@ -651,8 +651,10 @@ for (const [label, markup, expected] of [
       </span>
     </span>
   `);
-  expectEqual(getTextNodes(root).length, 0, "grouped fixture has no eligible text nodes");
-  expectEqual(render(root), 1, "grouped root discovery does not require eligible descendants");
+  // The visual (aria-hidden) fragments are scanned, the offscreen copy is not;
+  // the grouped detector still converts the price exactly once.
+  expectEqual(getTextNodes(root).length, 3, "grouped fixture scans only the visual fragments");
+  expectEqual(render(root), 1, "grouped price renders once");
   expectEqual(root.querySelectorAll(BADGE_SELECTOR).length, 1, "hidden-fragment grouped badge count");
 }
 

@@ -1,4 +1,4 @@
-import { fiatCurrencies } from "../data/currencies";
+import { resolveCurrencySymbol } from "../utils/currencyParser";
 import { isInsideExcludedContent } from "./domExclusions";
 
 export type GroupedPriceMatch = {
@@ -7,87 +7,11 @@ export type GroupedPriceMatch = {
   anchor: HTMLElement;
 };
 
-const unsafeSymbols = new Set(["R", "K", "F", "L", "P", "Q", "kr", "$", "¥"]);
-const safeFallbackSymbols = new Map<string, string>([
-  ["€", "EUR"],
-  ["£", "GBP"],
-]);
-const contextualSymbols = new Set([
-  "US$",
-  "CA$",
-  "AU$",
-  "NZ$",
-  "HK$",
-  "SG$",
-  "CN¥",
-  "JP¥",
-]);
-const contextualFallbackSymbols = new Map<string, string>([
-  ["US$", "USD"],
-  ["CA$", "CAD"],
-  ["AU$", "AUD"],
-  ["NZ$", "NZD"],
-  ["HK$", "HKD"],
-  ["SG$", "SGD"],
-  ["CN¥", "CNY"],
-  ["JP¥", "JPY"],
-]);
-const HIDDEN_PRICE_SELECTOR = '.a-offscreen, [aria-hidden="true"]';
+// Amazon renders every price twice inside `.a-price`: a screen-reader copy in
+// `.a-offscreen` and a visual copy (often aria-hidden) split into symbol,
+// whole and fraction. Only a price nested in a screen-reader copy is hidden.
+const HIDDEN_PRICE_SELECTOR = ".a-offscreen";
 const GROUPED_PRICE_SELECTOR = ".a-price";
-
-function normalizeSymbol(value: string): string {
-  return value.trim().replace(/\s+/gu, " ");
-}
-
-function buildCurrencyLookup(): Map<string, string> {
-  const symbolCurrencies = new Map<string, Set<string>>();
-
-  for (const currency of fiatCurrencies) {
-    const identifiers = [currency.code, ...currency.symbols];
-
-    for (const identifier of identifiers) {
-      const normalized = normalizeSymbol(identifier);
-
-      if (!normalized) {
-        continue;
-      }
-
-      const currencies = symbolCurrencies.get(normalized) ?? new Set<string>();
-      currencies.add(currency.code);
-      symbolCurrencies.set(normalized, currencies);
-    }
-  }
-
-  const lookup = new Map<string, string>();
-
-  for (const [symbol, currencies] of symbolCurrencies) {
-    if (unsafeSymbols.has(symbol)) {
-      continue;
-    }
-
-    if (contextualSymbols.has(symbol) || currencies.size === 1) {
-      const currency = currencies.values().next().value;
-
-      if (currency) {
-        lookup.set(symbol, currency);
-      }
-    }
-  }
-
-  for (const [symbol, currency] of safeFallbackSymbols) {
-    lookup.set(symbol, currency);
-  }
-
-  for (const [symbol, currency] of contextualFallbackSymbols) {
-    if (fiatCurrencies.some((definition) => definition.code === currency)) {
-      lookup.set(symbol, currency);
-    }
-  }
-
-  return lookup;
-}
-
-const currencyBySymbol = buildCurrencyLookup();
 
 function normalizeDigits(value: string): string {
   return value
@@ -121,37 +45,28 @@ function parseGroupedAmount(anchor: HTMLElement): number | null {
   return Number.isFinite(amount) ? amount : null;
 }
 
+function groupedMatchFor(anchor: HTMLElement): GroupedPriceMatch | null {
+  if (isInsideExcludedContent(anchor) || anchor.closest(HIDDEN_PRICE_SELECTOR)) {
+    return null;
+  }
+  const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")?.textContent ?? "";
+  const currency = symbolText.trim() ? resolveCurrencySymbol(symbolText) : undefined;
+  const amount = parseGroupedAmount(anchor);
+  return currency && amount !== null ? { amount, currency, anchor } : null;
+}
+
+/** True when `element` sits in an `.a-price` that the grouped detector converts. */
+export function isInsideGroupedPrice(element: Element): boolean {
+  const anchor = element.closest<HTMLElement>(GROUPED_PRICE_SELECTOR);
+  return !!anchor && groupedMatchFor(anchor) !== null;
+}
+
 export function detectGroupedPrices(root: ParentNode): GroupedPriceMatch[] {
   const matches: GroupedPriceMatch[] = [];
-  const seenAnchors = new Set<HTMLElement>();
-
   for (const anchor of root.querySelectorAll<HTMLElement>(GROUPED_PRICE_SELECTOR)) {
-    if (
-      seenAnchors.has(anchor) ||
-      isInsideExcludedContent(anchor) ||
-      anchor.closest(HIDDEN_PRICE_SELECTOR)
-    ) {
-      continue;
-    }
-
-    const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")
-      ?.textContent;
-    const symbol = symbolText ? normalizeSymbol(symbolText) : "";
-    const currency = symbol ? currencyBySymbol.get(symbol) : undefined;
-    const amount = parseGroupedAmount(anchor);
-
-    if (!currency || amount === null) {
-      continue;
-    }
-
-    seenAnchors.add(anchor);
-    matches.push({
-      amount,
-      currency,
-      anchor,
-    });
+    const match = groupedMatchFor(anchor);
+    if (match) matches.push(match);
   }
-
   return matches;
 }
 
@@ -167,24 +82,7 @@ export function detectGroupedPricesForTextNodes(
     }
   }
 
-  const matches: GroupedPriceMatch[] = [];
-  for (const anchor of anchors) {
-    if (
-      isInsideExcludedContent(anchor) ||
-      anchor.closest(HIDDEN_PRICE_SELECTOR)
-    ) {
-      continue;
-    }
-    const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")
-      ?.textContent;
-    const symbol = symbolText ? normalizeSymbol(symbolText) : "";
-    const currency = symbol ? currencyBySymbol.get(symbol) : undefined;
-    const amount = parseGroupedAmount(anchor);
-    if (currency && amount !== null) {
-      matches.push({ amount, currency, anchor });
-    }
-  }
-  return matches;
+  return [...anchors].map(groupedMatchFor).filter((match): match is GroupedPriceMatch => match !== null);
 }
 
 export function detectGroupedPricesInRoots(
@@ -206,22 +104,5 @@ export function detectGroupedPricesInRoots(
     }
   }
 
-  const matches: GroupedPriceMatch[] = [];
-  for (const anchor of anchors) {
-    if (
-      isInsideExcludedContent(anchor) ||
-      anchor.closest(HIDDEN_PRICE_SELECTOR)
-    ) {
-      continue;
-    }
-    const symbolText = anchor.querySelector<HTMLElement>(".a-price-symbol")
-      ?.textContent;
-    const symbol = symbolText ? normalizeSymbol(symbolText) : "";
-    const currency = symbol ? currencyBySymbol.get(symbol) : undefined;
-    const amount = parseGroupedAmount(anchor);
-    if (currency && amount !== null) {
-      matches.push({ amount, currency, anchor });
-    }
-  }
-  return matches;
+  return [...anchors].map(groupedMatchFor).filter((match): match is GroupedPriceMatch => match !== null);
 }

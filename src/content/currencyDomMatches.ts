@@ -5,8 +5,13 @@ import {
 } from "../utils/currencyParser";
 import { normalizeNumberToken } from "../utils/numberNormalizer";
 import { getContentExclusionDetail, isInsideExcludedContent } from "./domExclusions";
+import { getTextNodes, SCREEN_READER_ONLY_SELECTOR } from "./domScanner";
+import { applyGlyphRemaps } from "./glyphCurrencyRemap";
+import { isInsideGroupedPrice } from "./groupedPriceDetector";
+import { detectMarkedPrices } from "./markedPriceDetector";
 import { selectPriceAnchor } from "./priceAnchor";
 import { incrementPerfCounter, measureSync } from "./perfDiagnostics";
+import { rememberHiddenContent } from "./revealWatcher";
 
 const PERF_DIAGNOSTICS_ENABLED = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
 
@@ -45,6 +50,8 @@ export type CurrencyDomMatch = {
   scanKind: "direct" | "combined-inline" | "cluster-explicit" | "cluster-inferred";
   currencyOrigin?: "explicit" | "inferred";
   clusterIndex?: number;
+  /** Badge goes after this element (a currency icon after the number) instead of the anchor. */
+  placementAfter?: HTMLElement;
   directNodeParserSucceeded: boolean;
   localCombinedScanAttempted: boolean;
   excludedExtensionFragmentCount: number;
@@ -117,20 +124,75 @@ const SAME_NODE_BOUNDARY: FragmentBoundary = {
 };
 let latestRejectedParserMatches = 0;
 
+const RAISED_VERTICAL_ALIGN = /^(?:super|top|text-top)$|^[1-9][0-9.]*(?:px|em|ex|%)$|^0?\.[0-9]+(?:em|ex)$/u;
+
+/**
+ * Cents drawn as a raised, smaller number with no decimal point: `$399` then
+ * `<sup>99</sup>` (Best Buy, `$399⁹⁹`), or a span lifted by `vertical-align`
+ * or by top alignment in a flex row. Only an exact two-digit fragment right
+ * after a whole number qualifies; styles are read for those few fragments only.
+ */
+function isRaisedCents(previous: Text, current: Text): boolean {
+  if (!/^[0-9٠-٩۰-۹]{2}$/u.test((current.textContent ?? "").trim())) return false;
+  if (!/[0-9٠-٩۰-۹]\s*$/u.test(previous.textContent ?? "") ||
+      /[.,٫][0-9٠-٩۰-۹]{1,2}\s*$/u.test(previous.textContent ?? "")) return false;
+  const centsElement = current.parentElement;
+  const wholeElement = previous.parentElement;
+  if (!centsElement || !wholeElement || centsElement === wholeElement || centsElement.contains(previous)) return false;
+  if (centsElement.closest("sup") && !wholeElement.closest("sup")) return true;
+  if (typeof getComputedStyle !== "function") return false;
+  for (let element: HTMLElement | null = centsElement, depth = 0; element && depth < 2 && !element.contains(previous);
+    element = element.parentElement, depth++) {
+    if (RAISED_VERTICAL_ALIGN.test(getComputedStyle(element).verticalAlign)) return true;
+  }
+  const centsSize = Number.parseFloat(getComputedStyle(centsElement).fontSize);
+  const wholeSize = Number.parseFloat(getComputedStyle(wholeElement).fontSize);
+  if (!(centsSize > 0 && wholeSize > 0 && centsSize <= wholeSize * 0.8)) return false;
+  // Smaller and top-aligned with the whole number (flex rows with `align-items: flex-start`).
+  const centsRect = centsElement.getBoundingClientRect();
+  const wholeRect = wholeElement.getBoundingClientRect();
+  return wholeRect.height > 0 && centsRect.height > 0 &&
+    Math.abs(centsRect.left - wholeRect.right) <= wholeSize &&
+    centsRect.top + centsRect.height / 2 < wholeRect.top + wholeRect.height * 0.45;
+}
+
+/** "399" + "99" → "399.99"; a whole number grouped with dots ("1.399") takes a comma. */
+function centsSeparator(parserTail: string): string {
+  const whole = /[0-9٠-٩۰-۹][0-9٠-٩۰-۹.,'’\s\u00a0\u202f]*$/u.exec(parserTail)?.[0] ?? "";
+  return /[0-9٠-٩۰-۹]\.[0-9٠-٩۰-۹]{3}/u.test(whole) ? "," : ".";
+}
+
+// The join rules read only the end of the parser input so far (a split price
+// such as "1.399" + "." + "99" fits easily); reading all of it for every
+// fragment made long containers quadratic.
+const PARSER_TAIL_LENGTH = 64;
+
 function parserBoundary(
-  previousText: string,
+  parserTail: string,
   currentText: string,
-  boundary: FragmentBoundary
+  boundary: FragmentBoundary,
+  previousNode?: Text,
+  currentNode?: Text
 ): string {
   if (!boundary.safeForPriceJoin) return HARD_FRAGMENT_BOUNDARY;
+  if (previousNode && currentNode && isRaisedCents(previousNode, currentNode)) {
+    return centsSeparator(parserTail);
+  }
 
-  // Commerce prices commonly split the decimal tail into its own inline node.
-  // Keeping a synthetic token boundary between `353` and `,62` changes the
-  // parser's meaning to the standalone fractional tail. Join only this narrow,
-  // structurally safe numeric shape; ordinary word/token boundaries remain.
+  // Commerce prices commonly split the decimal tail into its own inline node:
+  // `353` + `,62`, or `139` + `.` + `00` with the separator in its own span
+  // (IKEA, Amazon). A synthetic token boundary there changes the parser's
+  // meaning to the standalone tail ("00€"). Join only these narrow, structurally
+  // safe numeric shapes; ordinary word/token boundaries remain.
   if (
-    /[0-9٠-٩۰-۹]\s*$/u.test(previousText) &&
-    /^\s*[.,٫][0-9٠-٩۰-۹]{1,4}(?![0-9٠-٩۰-۹])/u.test(currentText)
+    /[0-9٠-٩۰-۹]\s*$/u.test(parserTail) &&
+    (/^\s*[.,٫][0-9٠-٩۰-۹]{1,4}(?![0-9٠-٩۰-۹])/u.test(currentText) || /^\s*[.,٫]\s*$/u.test(currentText))
+  ) {
+    return "";
+  }
+  if (
+    /[0-9٠-٩۰-۹][.,٫]$/u.test(parserTail) &&
+    /^[0-9٠-٩۰-۹]{1,4}(?![0-9٠-٩۰-۹])/u.test(currentText)
   ) {
     return "";
   }
@@ -174,6 +236,7 @@ export function collectSourceTextFragments(
   const fragments: TextFragmentMap[] = [];
   let input = "";
   let parserInput = "";
+  let parserTail = "";
   let excludedExtensionFragmentCount = 0;
   const walker = container.ownerDocument.createTreeWalker(
     container,
@@ -199,12 +262,15 @@ export function collectSourceTextFragments(
         : SAME_NODE_BOUNDARY;
       if (previous && preserveFragmentBoundaries) {
         previous.boundaryAfter = boundaryBefore;
-        parserInput += parserBoundary(previous.text, text, boundaryBefore);
+        const separator = parserBoundary(parserTail, text, boundaryBefore, previous.node, node);
+        parserInput += separator;
+        parserTail += separator;
       }
       const combinedStart = input.length;
       const parserStart = parserInput.length;
       input += text;
       parserInput += text;
+      if (preserveFragmentBoundaries) parserTail = (parserTail + text).slice(-PARSER_TAIL_LENGTH);
       fragments.push({
         node, text, combinedStart, combinedEnd: input.length,
         parserStart, parserEnd: parserInput.length,
@@ -222,6 +288,32 @@ export function collectSourceTextFragments(
     excludedExtensionFragmentCount,
     combinedTextContainsExtensionUi: false,
   };
+}
+
+let sourceTextMemo: WeakMap<HTMLElement, string> | null = null;
+
+/**
+ * Within one render pass the page's own text does not change (badges and other
+ * extension UI are excluded from it), so a container shared by many prices,
+ * such as a product list, is read once instead of once per price.
+ */
+export function withSourceTextMemo<T>(work: () => T): T {
+  const outer = sourceTextMemo;
+  sourceTextMemo = outer ?? new WeakMap();
+  try {
+    return work();
+  } finally {
+    sourceTextMemo = outer;
+  }
+}
+
+/** The source text of `container` (extension UI excluded), memoized during a render pass. */
+export function sourceTextOf(container: HTMLElement): string {
+  const cached = sourceTextMemo?.get(container);
+  if (cached !== undefined) return cached;
+  const text = collectSourceTextFragments(container).input;
+  sourceTextMemo?.set(container, text);
+  return text;
 }
 
 function collectFragments(
@@ -300,8 +392,12 @@ function directDomMatches(node: Text): CurrencyDomMatch[] {
   }
 
   return parseCurrenciesForAudit(parserInput).flatMap((match) => {
-    const renderingAnchor = selectPriceAnchor([node], parserInput, match).anchor;
-    if (!renderingAnchor) return [];
+    const selection = selectPriceAnchor([node], parserInput, match);
+    const renderingAnchor = selection.anchor;
+    if (!renderingAnchor) {
+      if (selection.candidates[0]?.rejectedRule === "hidden-candidate") rememberHiddenContent(sourceElement);
+      return [];
+    }
     return [{
     parserInput,
     match,
@@ -439,7 +535,8 @@ function discoverIranianPriceClusters(
   existing: CurrencyDomMatch[]
 ): CurrencyDomMatch[] {
   if (!textNodes.some((node) =>
-    /(?:IRT|IRR|TMN|Tomans?|Rials?|تومان|تومن|ریال)/iu.test(node.textContent ?? "")
+    // Letters may not touch the code: "irt" inside "first" or "shirt" is no toman.
+    /(?<![A-Za-z])(?:IRT|IRR|TMN|Tomans?|Rials?)(?![A-Za-z])|تومان|تومن|ریال/iu.test(node.textContent ?? "")
   )) return [];
   const eligibleNodes = new Set(textNodes);
   const containers = new Set<HTMLElement>();
@@ -528,6 +625,62 @@ function discoverIranianPriceClusters(
   return inferred;
 }
 
+/** The next eligible text node in document order within a short distance. */
+function nextEligibleTextNode(node: Text, eligibleNodes: ReadonlySet<Text>): Text | null {
+  const scope = node.parentElement?.parentElement?.parentElement ?? node.parentElement;
+  if (!scope) return null;
+  const walker = node.ownerDocument.createTreeWalker(scope, 4);
+  walker.currentNode = node;
+  for (let next = walker.nextNode(); next; next = walker.nextNode()) {
+    const text = next as Text;
+    if (!(text.textContent ?? "").trim()) continue;
+    return eligibleNodes.has(text) ? text : null;
+  }
+  return null;
+}
+
+/**
+ * "$399" in one node followed by ".99" (or "." then "99") in the next is one
+ * price; the node joins the split-fragment scan so the cents are not lost.
+ */
+function continuesInNextFragment(
+  node: Text,
+  matches: readonly CurrencyDomMatch[],
+  eligibleNodes: ReadonlySet<Text>
+): boolean {
+  const text = node.textContent ?? "";
+  const endsAtNodeEnd = matches.some((candidate) => candidate.match.end === text.trimEnd().length &&
+    /[0-9٠-٩۰-۹]$/u.test(candidate.match.raw.trimEnd()));
+  if (!endsAtNodeEnd) return false;
+  const next = nextEligibleTextNode(node, eligibleNodes);
+  return !!next && (/^\s*[.,٫](?:[0-9٠-٩۰-۹]{1,2}(?![0-9٠-٩۰-۹])|\s*$)/u.test(next.textContent ?? "") ||
+    isRaisedCents(node, next));
+}
+
+/**
+ * A match on fewer fragments that a longer match of the same currency extends
+ * from the same start ("$109" inside "$109.99") is the same price, cut short.
+ * `sameStart` holds the matches that start at the candidate's first node.
+ */
+function isSubsumedByLongerMatch(candidate: CurrencyDomMatch, sameStart: readonly CurrencyDomMatch[]): boolean {
+  return sameStart.some((other) =>
+    other !== candidate &&
+    other.match.currency === candidate.match.currency &&
+    other.sourceNodes.length > candidate.sourceNodes.length &&
+    candidate.sourceNodes.every((node) => other.sourceNodes.includes(node))
+  );
+}
+
+function groupByFirstNode(matches: readonly CurrencyDomMatch[]): Map<Text | undefined, CurrencyDomMatch[]> {
+  const groups = new Map<Text | undefined, CurrencyDomMatch[]>();
+  for (const match of matches) {
+    const group = groups.get(match.sourceNodes[0]);
+    if (group) group.push(match);
+    else groups.set(match.sourceNodes[0], [match]);
+  }
+  return groups;
+}
+
 export function collectCurrencyDomMatches(
   textNodes: readonly Text[]
 ): CurrencyDomMatch[] {
@@ -543,9 +696,10 @@ export function collectCurrencyDomMatches(
       (candidate) =>
         !isSupersededIranianPrefixMatch(candidate, allEligibleNodes)
     );
-    if (retainedDirect.length > 0) {
-      results.push(...retainedDirect);
-    } else {
+    results.push(...retainedDirect);
+    // "$399" followed by ".99" also joins the split-fragment scan; the longer
+    // price replaces the direct one only when it exists ("$10" then "." stays).
+    if (retainedDirect.length === 0 || continuesInNextFragment(node, retainedDirect, allEligibleNodes)) {
       nodesWithoutDirectMatches.push(node);
     }
   }
@@ -613,7 +767,10 @@ export function collectCurrencyDomMatches(
 
   results.push(...discoverIranianPriceClusters(uniqueTextNodes, results));
 
-  const accepted = results.filter((candidate, index, all) =>
+  const byFirstNode = groupByFirstNode(results);
+  const accepted = results.filter((candidate) =>
+    !isSubsumedByLongerMatch(candidate, byFirstNode.get(candidate.sourceNodes[0]) ?? [])
+  ).filter((candidate, index, all) =>
     all.findIndex((other) =>
       other.match.currency === candidate.match.currency &&
       other.match.amount === candidate.match.amount &&
@@ -702,34 +859,62 @@ function textNodesUnder(root: Node): Text[] {
   return nodes;
 }
 
-function scannerExcludedVisualNodesUnder(root: Node): Text[] {
-  const sourceAriaHiddenSelector = [
-    '[aria-hidden="true"]',
-    ':not([data-ehinium-badge="true"])',
-    ':not([data-ehinium-converted="true"])',
-    ':not([data-euc-owned="true"])',
-    ':not([data-euc-badge="true"])',
-  ].join("");
-  if (root instanceof Text) {
-    const ariaScope = root.parentElement?.closest('[aria-hidden="true"]');
-    return ariaScope && !isInsideExcludedContent(ariaScope)
-      ? textNodesUnder(ariaScope)
-      : [];
+type VisuallyHiddenKind = "screen-reader" | "hidden";
+
+/**
+ * Screen-reader-only text that no class name gives away (an absolutely
+ * positioned 1px box, `clip: rect(0 0 0 0)`, `clip-path: inset(50%)`), or
+ * content hidden for now (`display: none`, `opacity: 0`) that the page may
+ * reveal later. Only checked for the few nodes that produced a price.
+ */
+function visuallyHiddenKind(
+  element: Element,
+  cache: WeakMap<Element, VisuallyHiddenKind | null>
+): VisuallyHiddenKind | null {
+  for (let current: Element | null = element, depth = 0; current && depth < 4; current = current.parentElement, depth++) {
+    let kind = cache.get(current);
+    if (kind === undefined) {
+      const style = typeof getComputedStyle === "function" ? getComputedStyle(current) : null;
+      kind = null;
+      if (style) {
+        const positioned = style.position === "absolute" || style.position === "fixed";
+        const clipped = /rect\(\s*[01]px[,\s]+[01]px[,\s]+[01]px[,\s]+[01]px\s*\)/u.test(style.clip ?? "") ||
+          /inset\(\s*(?:50|100)%/u.test(style.clipPath ?? "");
+        const tiny = positioned && (Number.parseFloat(style.width) <= 1 || Number.parseFloat(style.height) <= 1) &&
+          (style.overflow === "hidden" || style.overflowX === "hidden" || style.overflow === "clip");
+        if ((positioned && clipped) || tiny) kind = "screen-reader";
+        else if (style.display === "none" || style.visibility === "hidden" ||
+          (style.opacity !== "" && Number(style.opacity) === 0)) kind = "hidden";
+      }
+      cache.set(current, kind);
+    }
+    if (kind) return kind;
   }
-  const scopes: Element[] = [];
-  if (root instanceof Element) {
-    const containingAriaScope = root.closest(sourceAriaHiddenSelector);
-    if (containingAriaScope) scopes.push(containingAriaScope);
+  return null;
+}
+
+const MAX_PRICE_SCOPE_TEXT_LENGTH = 120;
+const INLINE_ROOT_TAGS = new Set([
+  "SPAN", "B", "STRONG", "SMALL", "SUP", "SUB", "DATA", "EM", "I", "A", "DEL", "INS", "S", "BDI", "FONT", "U",
+]);
+
+/**
+ * A mutation often touches one fragment of a split price ("4,500,000" while
+ * "تومان" sits in the next span). A text or inline root grows to the short
+ * ancestor that holds the whole price so the fragments are read together.
+ * Element roots such as a section are deliberate boundaries and stay as given.
+ */
+function priceScopeNodes(root: Node): Text[] {
+  if (root instanceof Element && !INLINE_ROOT_TAGS.has(root.tagName)) return [];
+  let element = root instanceof Element ? root : root.parentElement;
+  if (!element || (element.textContent?.length ?? 0) > MAX_PRICE_SCOPE_TEXT_LENGTH) return [];
+  for (let depth = 0; depth < 3; depth++) {
+    const parent: HTMLElement | null = element.parentElement;
+    if (!parent || parent === element.ownerDocument.body ||
+        (parent.textContent?.length ?? 0) > MAX_PRICE_SCOPE_TEXT_LENGTH) break;
+    element = parent;
   }
-  if (root instanceof Element && root.matches(sourceAriaHiddenSelector)) scopes.push(root);
-  if ("querySelectorAll" in root) {
-    scopes.push(...(root as ParentNode).querySelectorAll(sourceAriaHiddenSelector));
-  }
-  return [...new Set(
-    scopes
-      .filter((scope) => !isInsideExcludedContent(scope))
-      .flatMap(textNodesUnder)
-  )];
+  return getTextNodes(element);
 }
 
 /** Shared visibility-aware DOM discovery used by production and diagnostics. */
@@ -739,10 +924,14 @@ export function discoverCurrencyMatchesInRoots(
 ): DomCurrencyDiscoveryResult {
   const allNodes = [...new Set([
     ...(context.candidateNodes ?? []),
-    ...roots.flatMap(context.candidateNodes
-      ? scannerExcludedVisualNodesUnder
-      : textNodesUnder),
-  ])].filter((node) => !!node.textContent?.trim() && !isInsideExcludedContent(node));
+    ...roots.flatMap(context.candidateNodes ? priceScopeNodes : textNodesUnder),
+  ])].filter((node) => {
+    const parent = node.parentElement;
+    return !!node.textContent?.trim() && !isInsideExcludedContent(node) && !!parent &&
+      !parent.closest(SCREEN_READER_ONLY_SELECTOR) &&
+      // Amazon `.a-price` groups are converted as a whole by the grouped detector.
+      !isInsideGroupedPrice(parent);
+  });
   const rejectedMatches: DomCurrencyRejection[] = [];
   const visibilityCache = new WeakMap<HTMLElement, string | null>();
   const seededNodes = new Set(context.candidateNodes ?? []);
@@ -767,11 +956,31 @@ export function discoverCurrencyMatchesInRoots(
     }
     return false;
   });
-  const matches = collectCurrencyDomMatches(visibleNodes);
+  // Per pass: content hidden now may be revealed before the next scan.
+  const hiddenKindCache = new WeakMap<Element, VisuallyHiddenKind | null>();
+  const matches = collectCurrencyDomMatches(visibleNodes).filter((match) => {
+    const kinds = match.sourceNodes.map((node) =>
+      node.parentElement ? visuallyHiddenKind(node.parentElement, hiddenKindCache) : null);
+    const kind = kinds.find((value) => value !== null) ?? null;
+    if (kind) {
+      rejectedMatches.push({
+        discoveryOutcome: "hidden-nonvisual",
+        sourceNode: match.sourceNodes[0],
+        rejectionReason: kind === "screen-reader"
+          ? "Source text is a visually hidden screen-reader copy"
+          : "Source text is hidden until the page reveals it",
+        parserMatches: [match.match],
+      });
+      if (kind === "hidden" && !kinds.includes("screen-reader")) rememberHiddenContent(match.sourceElement);
+    }
+    return !kind;
+  });
+  matches.push(...detectMarkedPrices(roots, matches));
+  const remapped = applyGlyphRemaps(matches);
   return {
-    matches,
+    matches: remapped,
     rejectedMatches,
-    fragments: matches.flatMap((match) => match.fragmentMap),
+    fragments: remapped.flatMap((match) => match.fragmentMap),
   };
 }
 

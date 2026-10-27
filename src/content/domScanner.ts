@@ -2,9 +2,33 @@ import {
   getContentExclusionDetail,
 } from "./domExclusions";
 
-const ARIA_HIDDEN_SELECTOR = '[aria-hidden="true"]';
+/**
+ * Screen-reader-only copies by their conventional class names. Sites pair
+ * them with the visible text (often marked aria-hidden), so scanning both
+ * would convert one price twice and anchor a badge to invisible text.
+ * aria-hidden itself is not a visibility signal and is scanned normally.
+ * "offscreen" counts only at the end of a class ("a-offscreen", "aok-offscreen"),
+ * not in "offscreen-cart"; Tailwind's "md:not-sr-only" shows the text. Copies
+ * hidden by other names are found by their computed style. This selector runs
+ * in `closest()` for every text node: plain, case-sensitive substrings keep it fast.
+ */
+export const SCREEN_READER_ONLY_SELECTOR = [
+  '[class$="offscreen"]',
+  '[class*="offscreen "]',
+  '[class*="sr-only"]:not([class*="not-sr-only"])',
+  '[class*="sr_only"]',
+  ".sr_true",
+  '[class*="sr-text"]',
+  '[class*="visually-hidden"]',
+  '[class*="visuallyhidden"]',
+  '[class*="screen-reader"]',
+  '[class*="screenreader"]',
+  '[class*="a11y-hidden"]',
+  '[class*="assistive-text"]',
+].join(", ");
+
 const HIDDEN_ROOT_SELECTORS = [
-  ".a-offscreen",
+  SCREEN_READER_ONLY_SELECTOR,
   '[data-ehinium-ignore="true"]',
   '[data-ehinium-badge="true"]',
   '[data-ehinium-converted="true"]',
@@ -12,40 +36,8 @@ const HIDDEN_ROOT_SELECTORS = [
   '[data-euc-badge="true"]',
   "[data-ehinium-tooltip]",
 ];
-const EXCLUDED_TEXT_NODE_SELECTORS = [...HIDDEN_ROOT_SELECTORS, ARIA_HIDDEN_SELECTOR];
-
-// aria-hidden only removes content from the accessibility tree; it is not a
-// visibility signal. Roots inside it still reach currency discovery, which
-// applies its own visual checks to aria-hidden fragments.
+const EXCLUDED_TEXT_NODE_SELECTORS = HIDDEN_ROOT_SELECTORS;
 const HIDDEN_ROOT_SELECTOR = HIDDEN_ROOT_SELECTORS.join(", ");
-
-const controlLabelCache = new WeakMap<Element, boolean>();
-
-/**
- * Amazon renders swatch and size button text inside an aria-hidden span that
- * the button's input names through aria-labelledby. That span is the visible
- * label of the control, not a decorative duplicate.
- */
-function isVisibleControlLabel(element: Element): boolean {
-  const cached = controlLabelCache.get(element);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const id = element.id.replace(/["\\]/gu, "\\$&");
-  const isLabel = id !== "" &&
-    element.ownerDocument.querySelector(`[aria-labelledby~="${id}"]`) !== null;
-  controlLabelCache.set(element, isLabel);
-  return isLabel;
-}
-
-function closestExcludedAriaHidden(element: Element): Element | null {
-  let current = element.closest(ARIA_HIDDEN_SELECTOR);
-  while (current && isVisibleControlLabel(current)) {
-    current = current.parentElement?.closest(ARIA_HIDDEN_SELECTOR) ?? null;
-  }
-  return current;
-}
 
 export type TextNodeScanOptions = {
   maxNodes?: number;
@@ -76,9 +68,7 @@ export function getTextNodeScanExclusion(node: Text): TextNodeScanExclusion | nu
   }
 
   for (const selector of EXCLUDED_TEXT_NODE_SELECTORS) {
-    const excludedAncestor = selector === ARIA_HIDDEN_SELECTOR
-      ? closestExcludedAriaHidden(parent)
-      : parent.closest(selector);
+    const excludedAncestor = parent.closest(selector);
     if (excludedAncestor) {
       return {
         reason: `Matched scanner exclusion selector ${selector} on <${excludedAncestor.tagName.toLowerCase()}>`,

@@ -1,4 +1,5 @@
 import type { BadgeStyle } from "../types/settings";
+import { markBadgeRemovalIntentional } from "./badgeLifecycle";
 import { registerHoverTarget } from "./hoverRegistry";
 import { hideTooltip, showTooltip } from "./tooltip";
 
@@ -61,6 +62,9 @@ const SHADOW_STYLE = `
   contain: style;
   white-space: nowrap;
   line-height: normal;
+  /* Badge text is always "81.28 cm" / "$12.34"; on RTL pages it must not read "cm 81.28". */
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 [data-euc-shadow-badge="true"] {
   box-sizing: border-box;
@@ -77,7 +81,15 @@ const SHADOW_STYLE = `
   white-space: nowrap;
   vertical-align: baseline;
   text-decoration: none;
-  direction: inherit;
+  direction: ltr;
+  /* Inherited text styles of the page (a capitalized title reads "139.7 Cm"). */
+  text-transform: none;
+  font-style: normal;
+  font-variant: normal;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-indent: 0;
+  text-shadow: none;
   transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 :host([data-ehinium-badge-style="compact"]) [data-euc-shadow-badge="true"] {
@@ -267,6 +279,27 @@ export function setBadgeAriaLabel(host: HTMLElement, value: string): void {
   host.setAttribute("aria-label", value);
 }
 
+export type BadgeTextBox = { top: number; right: number; bottom: number; left: number };
+
+/**
+ * Where the badge draws its text: its box without the padding. A clipping box
+ * that only trims the padding leaves the value readable. Null for elements
+ * that are not protected badges.
+ */
+export function getBadgeTextBox(host: HTMLElement): BadgeTextBox | null {
+  const badge = controllers.get(host)?.visibleBadge;
+  if (!badge) return null;
+  const rect = badge.getBoundingClientRect();
+  const style = getComputedStyle(badge);
+  const padding = (value: string) => parseFloat(value) || 0;
+  return {
+    top: rect.top + padding(style.paddingTop),
+    right: rect.right - padding(style.paddingRight),
+    bottom: rect.bottom - padding(style.paddingBottom),
+    left: rect.left + padding(style.paddingLeft),
+  };
+}
+
 export function getBadgeCopyValue(host: HTMLElement): string {
   return controllers.get(host)?.copyValue ?? "";
 }
@@ -342,10 +375,12 @@ export function reconcileBadgeHosts(root: ParentNode = document): void {
     }
     const authority = legacyAuthorities.get(host);
     if (!authority) {
+      markBadgeRemovalIntentional(host);
       host.remove();
       continue;
     }
     if (!attachController(host, authority.value, authority.ariaLabel, authority.hoverContent, authority.badgeStyle, true)) {
+      markBadgeRemovalIntentional(host);
       host.remove();
     }
   }

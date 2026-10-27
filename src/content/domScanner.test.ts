@@ -45,32 +45,24 @@ document.body.append(hidden);
 
 expectEqual(isHiddenOrDisconnectedRoot(hidden), true, "hidden root skipped");
 
-// Amazon size/colour swatches: the aria-hidden span is the visible label that
-// the button input names via aria-labelledby, so its text is scanned. Nested
-// aria-hidden fragments and unreferenced aria-hidden content stay excluded.
+// aria-hidden only hides content from assistive technology. Visible text marked
+// aria-hidden (IKEA product names, Amazon swatch labels) is scanned; the
+// screen-reader-only copies next to it are not.
 document.body.innerHTML = `
-  <span class="a-button"><span class="a-button-inner">
-    <input class="a-button-input" type="submit" aria-labelledby="size_name_0-announce">
-    <span id="size_name_0-announce" class="a-button-text" aria-hidden="true">
-      <span class="swatch-title-text-display">52" x 52" (Square)</span>
-      <span class="a-price"><span aria-hidden="true">$17.91</span></span>
-    </span>
-  </span></span>
-  <span id="decorative" aria-hidden="true">70" (Round)</span>
+  <h3><a aria-label="LOHALS, Rug, flatwoven, natural, 5 ' 3 &quot;x7 ' 7 &quot;" href="#">LOHALS</a>
+    <span><span aria-hidden="true">Rug, flatwoven, natural, 5 ' 3 "x7 ' 7 "</span></span></h3>
+  <span class="pipcom-price"><span aria-hidden="true"><span>$</span><span>109</span><span><span>.</span>99</span></span><span class="pipcom-price__sr-text">Price $ 109.99</span></span>
+  <span class="a-price"><span class="a-offscreen">$17.90</span><span aria-hidden="true">$17.90</span></span>
+  <span class="sr-only">Hidden copy 70"</span>
+  <span class="sr_true">Hinta 399,99 €.</span>
 `;
-const swatchLabel = document.getElementById("size_name_0-announce") as unknown as Element;
+const scanned = getTextNodes(document.body).map((node) => node.textContent?.trim()).filter(Boolean);
+expectEqual(scanned.includes(`Rug, flatwoven, natural, 5 ' 3 "x7 ' 7 "`), true, "aria-hidden product name is scanned");
+expectEqual(scanned.join("|").includes("Price $ 109.99"), false, "IKEA screen-reader price is skipped");
+expectEqual(scanned.filter((text) => text === "$17.90").length, 1, "Amazon offscreen copy is skipped");
+expectEqual(scanned.some((text) => text.includes("Hidden copy") || text.includes("Hinta")), false, "sr-only classes are skipped");
 expectEqual(
-  getTextNodes(swatchLabel).map((node) => node.textContent?.trim()).filter(Boolean).join("|"),
-  '52" x 52" (Square)',
-  "control label inside aria-hidden is scanned"
-);
-expectEqual(
-  getTextNodes(document.getElementById("decorative") as unknown as Element).length,
-  0,
-  "unreferenced aria-hidden content stays excluded"
-);
-expectEqual(
-  isHiddenOrDisconnectedRoot(swatchLabel.querySelector(".a-price") as Element),
+  isHiddenOrDisconnectedRoot(document.querySelector('[aria-hidden="true"]') as Element),
   false,
   "aria-hidden alone does not make a mutation root hidden"
 );

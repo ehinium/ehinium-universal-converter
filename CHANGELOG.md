@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Page currency context: shared signs ($, ¥, kr, R, ريال, درهم, جنيه) follow the page's own currency from structured data, the country domain, the store path, the page language, or a short list of national shops on generic domains.
+- Currencies and formats: 원, 円, 元, ￥, the new Saudi riyal sign, Arabic currency words, Dhs, lei, Nordic and Czech `,-` prices (a currency written after the dash wins: `29,- €`), three-decimal dinars, Persian magnitude words (هزار، میلیون), CJK units between digits (`1万5000円`, `5만원`, `2억 5천만원`), price ranges whose bare bound shares the other bound's currency (`1 500 - 2 700 zł`, `$10 - 20`), signed differences (`−79.01€`, `-$5`), and cents drawn as raised numbers (`$399⁹⁹`).
+- Prices whose currency is an icon or hidden label: toman icons (Digikala, Sheypoor, eMalls), currency labels (extra.com SAR), and screen-reader copies that state the currency of a bare visible number.
+- Units: volume (ml, cl, L, fl oz, gal), ranges (`30 to 49 in`, `26"-65"`, `10kg-20kg`, `80吋至89吋`, `30cm至40cm`), fractions (`79 1/2"`, `31½"`), feet and inches (`5 ' 3 "`), W/L/H/D labels (`W55 x L82 Inch`), units written straight into Chinese, Japanese, Korean or Thai text (`125cm幅`, `25℃以下`, `30cm짜리`), and the word for inch in more than 20 languages.
+
+### Changed
+
+- Content revealed later (tabs, variant prices, faded-in bars), content inserted in bulk, and badges removed by the page's own framework are now scanned again.
+- A badge whose text would be cut off, or that would push half a line or more of its box's own text out of view, moves after that box when it fits there; where no nearby place shows it (fixed-size swatch tiles, clamped offers in fixed-height cards), the conversion appears on hover. A box that trims only the badge's padding, or clips the badge no more than the price beside it, leaves it in place.
+- `aria-hidden` is no longer treated as hidden; screen-reader-only copies are recognized by class and computed style.
+- Rate requests time out after 8 seconds and fall back to cached rates up to 7 days old; the first scan waits briefly for loading stylesheets.
+- `npm run build` warns when `EUC_IRANIAN_RATES_TOKEN` is not set.
+
+### Fixed
+
+- The English and German word "in" (`#487 in Fashion`, `5x8 in camel`), model names (`Redmi 15C`, `MK02`, `55UN711`), and cents (`99c`) are no longer converted as measurements or currencies.
+- Split prices (IKEA's `249` `.` `00` `€`), Amazon's `$17⁹⁰` cents, dash ranges read as negative numbers, reversed range badges, and badges on screen-reader copies.
+- Badge text keeps left-to-right order on right-to-left pages and no longer inherits the page's text transforms.
+- Anchor checks no longer re-parse the full text of large containers, which made pages with many hidden prices slow.
+- Faster page loads: the number formatter and the patterns for rarer price shapes (Iranian, CJK, dash and range prices, temperature words, diagnostics) are built on first use, so a page without prices no longer pays for them; joining split prices no longer rereads the whole container for every fragment.
+- A grouped price whose badge could not stay (too far from it, or cut off) is no longer rescanned again and again: putting the price back from its badge group read as new page content and kept the page busy.
+
 ## 0.3.1 - 2026-10-25
 
 ### Changed
