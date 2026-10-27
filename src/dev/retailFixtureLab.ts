@@ -7,8 +7,11 @@ import { parseCurrencies } from "../utils/currencyParser";
 import { defaultSettings } from "../utils/defaultSettings";
 import type { ExchangeRates } from "../types/rates";
 
-const app = document.querySelector<HTMLElement>("#app");
-if (!app) throw new Error("Missing #app");
+const app = document.querySelector<HTMLElement>("#app") ?? failMissingRoot();
+
+function failMissingRoot(): never {
+  throw new Error("Missing #app");
+}
 
 type Fixture = {
   id: string;
