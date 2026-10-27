@@ -619,7 +619,11 @@ try {
       new browserWindow.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }) as unknown as KeyboardEvent
     );
   });
-  expect(document.activeElement === unitsOnlyMode, "ArrowLeft moves Toggle Group focus");
+  // Radix moves roving focus in a timeout, after the keydown handler returns.
+  await waitFor(
+    () => expect(document.activeElement === unitsOnlyMode, "ArrowLeft moves Toggle Group focus"),
+    "mode arrow-key focus"
+  );
   await act(async () => {
     (document.activeElement as HTMLButtonElement).click();
   });

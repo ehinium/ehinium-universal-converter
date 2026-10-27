@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "dev:smoke": "vite --open /test-cases.html",
+    "dev:retail": "vite --open /retail-fixtures.html",
     "build": "tsc -b && vite build && cross-env BUILD_TARGET=content vite build",
     "build:privacy-docs": "vite build --config vite.privacy.config.ts",
     "build:diagnostics": "cross-env EUC_DIAGNOSTICS=true npm run build",
