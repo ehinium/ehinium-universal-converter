@@ -100,14 +100,18 @@ export function rectangleOverlap(first: DOMRect, second: DOMRect): number {
   return smallerArea > 0 ? intersection / smallerArea : 0;
 }
 
-export function resolveTranslationLineage(candidate: CurrencyDomMatch): TranslationLineage {
+/**
+ * Wrappers that hold the same text over the same box. `measure: false` skips
+ * the box comparison, a layout read, and so may reach further out.
+ */
+export function resolveTranslationLineage(candidate: CurrencyDomMatch, measure = true): TranslationLineage {
   const canonicalNode = candidate.sourceNodes.reduce((deepest, node) =>
     depthOf(node) > depthOf(deepest) ? node : deepest
   );
   const canonicalElement = canonicalNode.parentElement ?? candidate.sourceElement;
   const normalizedText = normalize(candidate.parserInput);
   const wrappers: HTMLElement[] = [canonicalElement];
-  const canonicalRect = canonicalElement.getBoundingClientRect();
+  const canonicalRect = measure ? canonicalElement.getBoundingClientRect() : null;
   let current = canonicalElement.parentElement;
   let lineageRoot = canonicalElement;
   let overlapRatio = 1;
@@ -115,7 +119,7 @@ export function resolveTranslationLineage(candidate: CurrencyDomMatch): Translat
   if (candidate.scanKind === "direct") {
     while (current) {
       const normalizedAncestorText = normalize(sourceText(current));
-      const overlap = rectangleOverlap(current.getBoundingClientRect(), canonicalRect);
+      const overlap = canonicalRect ? rectangleOverlap(current.getBoundingClientRect(), canonicalRect) : 1;
       if (normalizedAncestorText !== normalizedText || overlap < 0.8) break;
       wrappers.push(current);
       lineageRoot = current;
@@ -135,7 +139,18 @@ export function findExistingLineageBadges(
   candidate: CurrencyDomMatch,
   targetCurrency: string
 ): HTMLElement[] {
-  const lineage = resolveTranslationLineage(candidate);
+  // The text alone bounds the lineage from outside. Its boxes are measured only
+  // when a badge for this price sits within that bound: a render pass inserts
+  // badges before it reads layout, and a read here would force a layout each time.
+  if (lineageBadges(resolveTranslationLineage(candidate, false), candidate, targetCurrency).length === 0) return [];
+  return lineageBadges(resolveTranslationLineage(candidate), candidate, targetCurrency);
+}
+
+function lineageBadges(
+  lineage: TranslationLineage,
+  candidate: CurrencyDomMatch,
+  targetCurrency: string
+): HTMLElement[] {
   return [...lineage.lineageRoot.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"], [data-euc-badge="true"]')]
     .filter((badge) => {
       const ownedRoot = badge.closest<HTMLElement>(OWNED_SELECTOR);

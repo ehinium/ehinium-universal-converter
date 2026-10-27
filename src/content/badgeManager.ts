@@ -9,6 +9,7 @@ import {
 import type { BadgeStyle } from "../types/settings";
 import { markBadgeRemovalIntentional, markMovedByExtension } from "./badgeLifecycle";
 import {
+  clearBadgeColorVariables,
   createProtectedBadgeHost,
   forgetBadgeHost,
   setBadgeColorVariables,
@@ -193,23 +194,27 @@ function getContextBackgroundColor(color: ParsedColor): string {
   return formatRgba(color, 0.07);
 }
 
-function applyBadgeColorContext(
+/**
+ * The colours an inserted badge takes from `sourceElement`. Reads computed
+ * styles only, so a render pass can read every badge's before writing any.
+ */
+export function readBadgeColorContext(
   badge: HTMLElement,
-  sourceElement: HTMLElement,
-  badgeStyle: BadgeStyle
-): void {
+  sourceElement: HTMLElement
+): BadgeColorContext | null {
   const badgeParent = badge.parentElement;
+  return badgeParent ? getBadgeColorContext(sourceElement, badgeParent) : null;
+}
 
-  if (!badgeParent) {
-    return;
-  }
-
-  const context = getBadgeColorContext(sourceElement, badgeParent);
-
+export function applyBadgeColorContext(
+  badge: HTMLElement,
+  context: BadgeColorContext | null
+): void {
   if (!context?.isSharedBackground) {
     return;
   }
 
+  const badgeStyle = (badge.getAttribute("data-ehinium-badge-style") as BadgeStyle | null) ?? "default";
   setBadgeColorVariables(
     badge,
     context.textColor,
@@ -383,51 +388,79 @@ function insertIntoPriceGroup(
   return true;
 }
 
+/**
+ * `colorContext: false` leaves the colours to the caller, which reads them with
+ * `readBadgeColorContext(badge, anchor)` once its other badges are in.
+ */
 export function insertBadgeAfter(
   anchor: HTMLElement,
-  badge: HTMLElement
+  badge: HTMLElement,
+  colorContext = true
 ): void {
   if (!insertIntoPriceGroup(anchor, badge)) {
     anchor.insertAdjacentElement("afterend", badge);
   }
 
-  applyBadgeColorContext(
-    badge,
-    anchor,
-    (badge.getAttribute("data-ehinium-badge-style") as BadgeStyle | null) ??
-      "default"
-  );
+  if (colorContext) applyBadgeColorContext(badge, readBadgeColorContext(badge, anchor));
 }
 
 /**
- * Inserts after `node`, or after `previous` (an earlier badge for the same
- * text) so several badges of one text node keep the source order.
+ * Moves a badge inserted with `colorContext: false` to where
+ * `insertBadgeAfterTextNode` puts it now, and gives it the colours of that place.
  */
-export function insertBadgeAfterTextNode(
+export function moveBadgeAfterTextNode(
   node: Text,
   badge: HTMLElement,
   previous?: HTMLElement | null
 ): void {
-  const parent = node.parentElement;
+  clearBadgeColorVariables(badge);
+  insertBadgeAfterTextNode(node, badge, previous);
+}
 
-  if (!parent) {
+/** Where `insertBadgeAfterTextNode` puts a badge: right after `after`. */
+function textBadgePosition(
+  node: Text,
+  previous: HTMLElement | null | undefined
+): { textParent: HTMLElement; after: Node } | null {
+  const textParent = node.parentElement;
+  if (!textParent) return null;
+  // After an earlier badge of the same text (which may sit after a clipping box).
+  if (previous?.isConnected && previous.parentElement !== textParent) {
+    return { textParent, after: previous };
+  }
+  return { textParent, after: previous?.isConnected ? previous : node };
+}
+
+/** True when `badge` already sits where `insertBadgeAfterTextNode` would put it. */
+export function isBadgeAfterTextNode(
+  node: Text,
+  badge: HTMLElement,
+  previous?: HTMLElement | null
+): boolean {
+  const position = textBadgePosition(node, previous);
+  return !!position && badge.previousSibling === position.after;
+}
+
+/**
+ * Inserts after `node`, or after `previous` (an earlier badge for the same
+ * text) so several badges of one text node keep the source order. With
+ * `colorContext: false` the caller reads the colours against the text's parent.
+ */
+export function insertBadgeAfterTextNode(
+  node: Text,
+  badge: HTMLElement,
+  previous?: HTMLElement | null,
+  colorContext = true
+): void {
+  const position = textBadgePosition(node, previous);
+
+  if (!position) {
     return;
   }
 
-  // After an earlier badge of the same text (which may sit after a clipping box).
-  if (previous?.isConnected && previous.parentElement !== parent) {
-    previous.insertAdjacentElement("afterend", badge);
-  } else {
-    const reference = previous?.isConnected ? previous : node;
-    parent.insertBefore(badge, reference.nextSibling);
-  }
+  position.after.parentNode?.insertBefore(badge, position.after.nextSibling);
 
-  applyBadgeColorContext(
-    badge,
-    parent,
-    (badge.getAttribute("data-ehinium-badge-style") as BadgeStyle | null) ??
-      "default"
-  );
+  if (colorContext) applyBadgeColorContext(badge, readBadgeColorContext(badge, position.textParent));
 }
 
 export function getPriceContainer(anchor: HTMLElement): HTMLElement {
