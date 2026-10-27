@@ -24,6 +24,7 @@
 - Badge text keeps left-to-right order on right-to-left pages and no longer inherits the page's text transforms.
 - Anchor checks no longer re-parse the full text of large containers, which made pages with many hidden prices slow.
 - Faster page loads: the number formatter and the patterns for rarer price shapes (Iranian, CJK, dash and range prices, temperature words, diagnostics) are built on first use, so a page without prices no longer pays for them; joining split prices no longer rereads the whole container for every fragment.
+- Badges are measured against one layout per render pass instead of forcing a layout for each badge, which halves the cost on very large pages.
 - A grouped price whose badge could not stay (too far from it, or cut off) is no longer rescanned again and again: putting the price back from its badge group read as new page content and kept the page busy.
 
 ## 0.3.1 - 2026-10-25
