@@ -199,6 +199,29 @@ function canEscape(box: ClippingBox, anchor: DOMRect | null): boolean {
     (width <= 0 || box.rect.width <= Math.max(width * 2.5, width + 160));
 }
 
+function lazyMeasured(source: BadgeSource | undefined, anchor: Element | undefined): Measured {
+  let sourceRect: DOMRect | null | undefined;
+  let anchorRect: DOMRect | null | undefined;
+  const holder = anchor ?? (source instanceof Element ? source : source?.node.parentElement ?? undefined);
+  return {
+    source: () => sourceRect === undefined ? (sourceRect = measureSource(source)) : sourceRect,
+    anchor: () => anchorRect === undefined ? (anchorRect = measureSource(holder)) : anchorRect,
+  };
+}
+
+/**
+ * True when `escapeClippedBadge` would have work to do: a box cuts the badge
+ * off or overflows because of it. It moves nothing, so a render pass can check
+ * all its badges against one layout and escape only those that need it.
+ */
+export function isBadgeClipped(badge: HTMLElement, source?: BadgeSource, anchor?: Element): boolean {
+  if (typeof getComputedStyle !== "function") return false;
+  const badgeRect = badge.getBoundingClientRect();
+  if (badgeRect.width <= 0 && badgeRect.height <= 0) return false;
+  const boxes = clippingBoxes(badge, source, lazyMeasured(source, anchor));
+  return !!boxes && boxes.length > 0;
+}
+
 /**
  * Moves `badge` after the nearest ancestor whose clipping it can leave: one that
  * cuts its text off or that it makes overflow, about the size of the source's
@@ -211,13 +234,7 @@ export function escapeClippedBadge(badge: HTMLElement, source?: BadgeSource, anc
   if (typeof getComputedStyle !== "function") return UNCHANGED;
   const badgeRect = badge.getBoundingClientRect();
   if (badgeRect.width <= 0 && badgeRect.height <= 0) return UNCHANGED;
-  let sourceRect: DOMRect | null | undefined;
-  let anchorRect: DOMRect | null | undefined;
-  const holder = anchor ?? (source instanceof Element ? source : source?.node.parentElement ?? undefined);
-  const measured: Measured = {
-    source: () => sourceRect === undefined ? (sourceRect = measureSource(source)) : sourceRect,
-    anchor: () => anchorRect === undefined ? (anchorRect = measureSource(holder)) : anchorRect,
-  };
+  const measured = lazyMeasured(source, anchor);
   const boxes = clippingBoxes(badge, source, measured);
   if (!boxes || boxes.length === 0) return UNCHANGED;
 

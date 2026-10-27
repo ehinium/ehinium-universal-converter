@@ -953,3 +953,36 @@ for (const source of ["10 in", "5 ft"] as const) {
     "unit-only hover target"
   );
 }
+
+// A render pass inserts all its badges before it reads layout: a read after
+// each insertion would force a new layout of the page per badge. A badge that
+// lands too far away goes, and the next badge of the same text follows the
+// last one placed, as when each settled before the next went in.
+{
+  const root = createRoot("<span>€40, €50 or €60</span>");
+  const source = root.querySelector("span")!;
+  const prototypeRect = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "getBoundingClientRect")!;
+  const badgesAtFirstRead: number[] = [];
+  Object.defineProperty(window.HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement) {
+      if (this.matches(BADGE_SELECTOR) && badgesAtFirstRead.length === 0) {
+        badgesAtFirstRead.push(root.querySelectorAll(BADGE_SELECTOR).length);
+      }
+      // The €50 badge wraps far below its price.
+      return this.getAttribute("data-ehinium-key")?.startsWith("50|")
+        ? { ...visibleRect, top: 100, bottom: 120, y: 100 }
+        : visibleRect;
+    },
+  });
+  const rendered = render(root, "USD", (match) => match.amount);
+  Object.defineProperty(window.HTMLElement.prototype, "getBoundingClientRect", prototypeRect);
+
+  expectEqual(badgesAtFirstRead[0], 3, "every badge is in before the first badge is measured");
+  expectEqual(rendered, 2, "the far badge is not counted");
+  expectEqual(
+    [...source.childNodes].map((node) => node instanceof window.HTMLElement ? getBadgeVisibleText(node as unknown as HTMLElement) : "text").join(" | "),
+    "text | $40.00 | $60.00",
+    "badges of one text keep their order without the far one"
+  );
+}

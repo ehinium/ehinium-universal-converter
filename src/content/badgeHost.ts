@@ -318,6 +318,12 @@ export function setBadgeColorVariables(host: HTMLElement, color: string, backgro
   if (background !== null) host.style.setProperty("--euc-badge-background", background);
 }
 
+export function clearBadgeColorVariables(host: HTMLElement): void {
+  host.style.removeProperty("color");
+  host.style.removeProperty("--euc-badge-color");
+  host.style.removeProperty("--euc-badge-background");
+}
+
 export function isProtectedBadgeHost(host: Element | null): host is HTMLElement {
   return host instanceof HTMLElement && controllers.has(host);
 }
