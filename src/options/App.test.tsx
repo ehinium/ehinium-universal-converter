@@ -587,7 +587,11 @@ try {
     darkToggle.focus();
     darkToggle.dispatchEvent(new browserWindow.KeyboardEvent("keydown", { key: "ArrowLeft", code: "ArrowLeft", bubbles: true }) as unknown as KeyboardEvent);
   });
-  expect(document.activeElement === getToggle("Light"), "Theme Toggle Group supports arrow-key roving focus");
+  // Radix moves roving focus in a timeout, after the keydown handler returns.
+  await waitFor(
+    () => expect(document.activeElement === getToggle("Light"), "Theme Toggle Group supports arrow-key roving focus"),
+    "theme arrow-key focus"
+  );
   await act(async () => { getToggle("Light").click(); });
   await waitFor(() => expectEqual(storedTheme, "light", "theme keyboard persistence"), "theme keyboard navigation");
   expectEqual(document.documentElement.dataset.theme, "light", "light theme immediate application");
