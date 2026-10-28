@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 - 2026-10-28
+
+### Fixed
+
+- Iranian (IRT) rates load again: the rates API moved to `https://api.euc.tools`, because the previous `workers.dev` address stopped working. The host permission changes to match.
+
 ## 1.0.0 - 2026-10-27
 
 ### Added
