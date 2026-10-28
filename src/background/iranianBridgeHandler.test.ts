@@ -26,7 +26,7 @@ const rate: IranianBridgeRate = {
   sourceUpdatedAt: "2026-07-19T11:00:00Z",
   provider: "ehinium",
 };
-const apiUrl = "https://ehinium-rates-api.ehinium.workers.dev";
+const apiUrl = "https://api.euc.tools";
 const token = "internal-extension-token";
 const fetchImpl: typeof fetch = async () => {
   throw new Error("injected fetch should only be forwarded");
@@ -287,7 +287,7 @@ type ContextMenuClickListener = (
 
   Object.defineProperty(globalThis, "__EUC_IRANIAN_RATES_API_URL__", {
     configurable: true,
-    value: "https://ehinium-rates-api.ehinium.workers.dev/v1/rates",
+    value: "https://api.euc.tools/v1/rates",
   });
   Object.defineProperty(globalThis, "__EUC_IRANIAN_RATES_TOKEN__", {
     configurable: true,

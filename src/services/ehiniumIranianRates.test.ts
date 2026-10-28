@@ -56,7 +56,7 @@ function mockFetch(
   return handler as typeof fetch;
 }
 
-const apiUrl = "https://ehinium-rates-api.ehinium.workers.dev";
+const apiUrl = "https://api.euc.tools";
 const token = "test-extension-token";
 const validResponse = {
   version: 1,
