@@ -1,9 +1,9 @@
 import type { UserSettings } from "../types/settings";
 
 export const defaultSettings: UserSettings = {
-  targetCurrency: "EUR",
+  targetCurrency: "USD",
   enabled: true,
-  converterMode: "currencies",
+  converterMode: "everything",
   badgeStyle: "default",
   badgeVisibility: "always",
   unitSystem: "auto",

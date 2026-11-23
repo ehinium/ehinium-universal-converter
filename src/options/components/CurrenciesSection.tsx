@@ -1,10 +1,10 @@
 import {
   Select,
   SelectContent,
-  SelectItem,
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { CurrencySelectItems } from "../../settings/components/CurrencySelectItems";
 import type { ExchangeRateStatus } from "../../services/rates";
 import { RateStatus } from "../../settings/components/RateStatus";
 import { OptionsSection } from "./OptionsSection";
@@ -61,11 +61,7 @@ export function CurrenciesSection({
               </SelectValue>
             </SelectTrigger>
             <SelectContent position="popper" collisionPadding={8} className="w-[var(--radix-select-trigger-width)]">
-              {currencies.map((currency) => (
-                <SelectItem key={currency.code} value={currency.code}>
-                  {currency.code} - {currency.name}
-                </SelectItem>
-              ))}
+              <CurrencySelectItems currencies={currencies} />
             </SelectContent>
           </Select>
         </SettingsRow>
