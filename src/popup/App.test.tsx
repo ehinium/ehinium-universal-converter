@@ -259,7 +259,7 @@ async function changeValue(
   });
 }
 
-async function chooseSelect(id: string, label: string, expectedOptionCount?: number): Promise<void> {
+async function chooseSelect(id: string, label: string, expectedOptionCount?: number, search?: string): Promise<void> {
   const trigger = getElement<HTMLButtonElement>(`#${id}`);
   await act(async () => {
     trigger.dispatchEvent(new browserWindow.PointerEvent("pointerdown", {
@@ -268,11 +268,14 @@ async function chooseSelect(id: string, label: string, expectedOptionCount?: num
       pointerType: "mouse",
     }) as unknown as PointerEvent);
   });
+  if (search !== undefined) {
+    await changeValue(getElement<HTMLInputElement>('input[aria-label="Search currencies"]'), search, "input");
+  }
   const option = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')).find(
     (candidate) => candidate.textContent?.trim() === label
   );
   if (expectedOptionCount !== undefined) {
-    expectEqual(document.querySelectorAll('[data-slot="select-item"]').length, expectedOptionCount, `${id} option count`);
+    expectEqual(document.querySelectorAll('[data-slot="select-item"]:not([hidden])').length, expectedOptionCount, `${id} option count`);
   }
   expect(option, `Expected ${id} option ${label}`);
   await act(async () => {
@@ -720,7 +723,7 @@ try {
   expectEqual(networkRequestCount, 0, "same-target conversion network isolation");
 
   allowRateRequests = true;
-  await chooseSelect("target-currency", "USD - United States Dollar", 155);
+  await chooseSelect("target-currency", "USD - United States Dollar", 1, "united states");
   await waitFor(
     () => expectEqual(storedSettings.targetCurrency, "USD", "stored target currency"),
     "target-currency persistence"

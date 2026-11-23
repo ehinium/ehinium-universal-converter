@@ -2,10 +2,10 @@ import { Field, FieldLabel } from "../../components/ui/field";
 import {
   Select,
   SelectContent,
-  SelectItem,
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { CurrencySelectItems } from "../../settings/components/CurrencySelectItems";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { conversionModeOptions } from "../../settings/conversion-mode-options";
 import type { UserSettings } from "../../types/settings";
@@ -52,11 +52,7 @@ export function QuickSettings({
             collisionPadding={8}
             className="z-(--layer-dropdown) max-h-[min(20rem,var(--radix-select-content-available-height))] w-[var(--radix-select-trigger-width)]"
           >
-            {currencies.map((currency) => (
-              <SelectItem key={currency.code} value={currency.code}>
-                {currency.code} - {currency.name}
-              </SelectItem>
-            ))}
+            <CurrencySelectItems currencies={currencies} />
           </SelectContent>
         </Select>
       </Field>

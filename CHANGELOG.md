@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.2 - 2026-11-23
+
+### Added
+
+- The target currency menus in the popup and on the settings page have a search field that matches currency codes and names.
+
+### Changed
+
+- New installs start with US Dollar as the target currency and Everything as the conversion mode. Saved settings stay as they are.
+
+### Fixed
+
+- The switch in dark mode shows its thumb when on, so on and off are easy to tell apart.
+
 ## 1.0.1 - 2026-10-28
 
 ### Fixed
