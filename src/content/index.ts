@@ -176,7 +176,8 @@ function registerHoverListeners(): void {
   }
 
   document.addEventListener("mousemove", (event) => {
-    const target = event.target;
+    // The target is retargeted to the host when the pointer is inside a shadow root.
+    const target = event.composedPath()[0] ?? event.target;
 
     if (!(target instanceof HTMLElement)) {
       hideTooltip();

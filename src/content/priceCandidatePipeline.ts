@@ -3,6 +3,7 @@ import type { CurrencyDomMatch } from "./currencyDomMatches";
 import { sourceTextOf } from "./currencyDomMatches";
 import { markBadgeRemovalIntentional } from "./badgeLifecycle";
 import { rememberHiddenContent } from "./revealWatcher";
+import { querySelectorAllDeep } from "./shadowRoots";
 import {
   reconcileBadgeHostsForKey,
   registerAuthoritativeBadgeHost,
@@ -460,7 +461,7 @@ export function canonicalizePriceCandidates(candidates: readonly PriceCandidate[
 
 function matchingBadges(candidate: PriceCandidate): HTMLElement[] {
   const badges = reconciliationBatchBadges ??
-    [...document.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]')];
+    querySelectorAllDeep<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]');
   const rateBadges = reconciliationBatchBadgesByRateKey?.get(
     rateKey(candidate.sourceCurrency, candidate.amount, candidate.targetCurrency)
   ) ?? badges;
@@ -588,9 +589,7 @@ export function registerCanonicalVisualSource(candidate: PriceCandidate, badge: 
 
 export function beginVisualSourceReconciliationBatch(): void {
   latestReconciliationDiagnostics = [];
-  reconciliationBatchBadges = [
-    ...document.querySelectorAll<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]'),
-  ];
+  reconciliationBatchBadges = querySelectorAllDeep<HTMLElement>('[data-ehinium-badge="true"][data-euc-canonical-key]');
   reconciliationBatchBadgeSet = new Set(reconciliationBatchBadges);
   reconciliationBatchBadgesByRateKey = new Map();
   for (const badge of reconciliationBatchBadges) {

@@ -41,6 +41,7 @@ import { isInsideExcludedContent } from "./domExclusions";
 import { SCREEN_READER_ONLY_SELECTOR } from "./domScanner";
 import { escapeClippedBadge, isBadgeClipped, type BadgeSource } from "./badgePlacement";
 import { rememberHiddenContent } from "./revealWatcher";
+import { getKnownShadowRoots } from "./shadowRoots";
 import {
   detectGroupedPricesForTextNodes,
   detectGroupedPricesInRoots,
@@ -1075,6 +1076,9 @@ export function resetRenderedConversions(root: ParentNode): void {
   clearVisualSourceRegistry(root);
   clearBadgeVisibilityRecords(root);
   removeBadges(root);
-  if (root === document) clearBadgeHostRegistry();
+  if (root === document) {
+    for (const shadowRoot of getKnownShadowRoots()) removeBadges(shadowRoot);
+    clearBadgeHostRegistry();
+  }
   clearHoverTargets();
 }
