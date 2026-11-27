@@ -37,15 +37,15 @@ jobs:
 
       - run: npm run lint
 
-      - name: Build
+      - name: Build and package
         env:
           EUC_IRANIAN_RATES_TOKEN: ${{ secrets.EUC_IRANIAN_RATES_TOKEN }}
         run: |
           # Without the token the build cannot load Iranian rates; never ship that.
           test -n "$EUC_IRANIAN_RATES_TOKEN" || { echo "The EUC_IRANIAN_RATES_TOKEN secret is not set." >&2; exit 1; }
-          npm run build
-
-      - run: npm run package:release
+          # package:release makes a clean build of its own, so it is the step that needs the token.
+          npm run package:release
+          grep -qF -- "$EUC_IRANIAN_RATES_TOKEN" dist/assets/background.js || { echo "The packaged build has no Iranian rates token." >&2; exit 1; }
 
       - run: npm run validate:release
 

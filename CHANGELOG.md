@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4 - 2026-11-27
+
+### Fixed
+
+- Iranian (IRT) rates load in the released package. The release workflow built with the rates token, but `package:release` rebuilt without it, so the packaged extension had no token and toman and rial prices did not convert. The packaging step now gets the token and fails if the packaged build lacks it.
+
 ## 1.0.3 - 2026-11-27
 
 ### Fixed
