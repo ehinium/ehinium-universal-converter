@@ -7,6 +7,8 @@
  * are, an attribute observer rescans the ones that become visible.
  */
 
+import { containsComposed } from "./shadowRoots";
+
 const MAX_WATCHED_ELEMENTS = 200;
 // The second look catches reveals that fade in through a CSS transition.
 const RECHECK_DELAYS_MS = [120, 650];
@@ -64,7 +66,8 @@ function handleAttributeMutations(mutations: readonly MutationRecord[]): void {
       continue;
     }
     for (const target of targets) {
-      if (target === element || target.contains(element)) {
+      if (target === element || target.contains(element) ||
+          (element.getRootNode() !== element.ownerDocument && containsComposed(target, element))) {
         touched.add(element);
         break;
       }

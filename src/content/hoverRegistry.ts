@@ -1,3 +1,5 @@
+import { composedParent } from "./shadowRoots";
+
 export type HoverTarget = {
   element: HTMLElement;
   content: string;
@@ -43,16 +45,17 @@ export function getHoverTarget(element: HTMLElement): HoverTarget | null {
 }
 
 export function getClosestHoverTarget(element: HTMLElement): HoverTarget | null {
-  let current: HTMLElement | null = element;
+  let current: Element | null = element;
 
   while (current) {
-    const target = getHoverTarget(current);
+    const target = getHoverTarget(current as HTMLElement);
 
     if (target) {
       return target;
     }
 
-    current = current.parentElement;
+    // Out of a web component's shadow root into the tile that holds it.
+    current = composedParent(current);
   }
 
   return null;

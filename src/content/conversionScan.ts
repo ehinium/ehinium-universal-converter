@@ -22,6 +22,7 @@ import {
 } from "./currencyDomMatches";
 import { detectGroupedPricesInRoots } from "./groupedPriceDetector";
 import { refreshPageCurrencyContext } from "./pageCurrencyContext";
+import { withOpenShadowRoots } from "./shadowRoots";
 import { incrementPerfCounter, measurePerf, measurePerfAsync } from "./perfDiagnostics";
 
 export type ConversionScanResult = {
@@ -145,7 +146,7 @@ export async function scanConversionRoots(
     dependencies.requestIranianBridgeRate ?? requestIranianBridgeRate;
   const render = dependencies.renderConversions ?? renderConversions;
   const writeDebug = dependencies.debugLog ?? debugLog;
-  const roots = request.roots ?? [document.body];
+  const roots = withOpenShadowRoots(request.roots ?? [document.body]);
   refreshPageCurrencyContext();
   const perfDiagnosticsEnabled = typeof __EUC_PERF_DIAGNOSTICS__ !== "undefined" && __EUC_PERF_DIAGNOSTICS__;
   const textNodes = perfDiagnosticsEnabled

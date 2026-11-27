@@ -84,4 +84,28 @@ reset();
   expectEqual(getBadgeHostCensusDiagnostic().totalOrphanHostCount, 0, "post-reconciliation census has no orphan hosts");
 }
 
+reset();
+{
+  // A price inside a web component (Pull&Bear's <price-element>) gets its badge in the same shadow root.
+  const host = document.createElement("price-element");
+  document.body.append(host);
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.innerHTML = '<p class="sale">109,00PLN</p>';
+  const source = shadow.querySelector<HTMLElement>(".sale")!;
+  const badge = createBadge("$26.66", "109,00 PLN → $26.66");
+  source.after(badge);
+  registerAuthoritativeBadgeHost({
+    sourceKey: "shadow-price", badgeHost: badge, sourceElement: source,
+    renderMode: "inline", creationReason: "Registry test",
+  });
+  const translatedClone = cloneProtectedBadgeHost(badge);
+  badge.after(translatedClone);
+  reconcileAffectedBadgeHosts([{
+    type: "childList", target: source.parentNode, addedNodes: [translatedClone], removedNodes: [],
+  } as unknown as MutationRecord]);
+  expect(badge.isConnected, "the shadow-root badge keeps its registry record");
+  expect(!translatedClone.isConnected, "a duplicate inside the shadow root is removed");
+  expectEqual(getBadgeHostCensusDiagnostic().totalRegistryRecordCount, 1, "the shadow-root badge stays registered");
+}
+
 console.log("badgeHostRegistry tests passed");

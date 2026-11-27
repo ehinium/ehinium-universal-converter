@@ -1,5 +1,6 @@
 import { forgetBadgeHost, getBadgeVisibleText, isProtectedBadgeHost } from "./badgeHost";
 import { markBadgeRemovalIntentional } from "./badgeLifecycle";
+import { querySelectorAllDeep } from "./shadowRoots";
 
 export type BadgeHostRenderMode = "inline" | "overlay" | "legacy";
 
@@ -103,9 +104,17 @@ function quotedAttributeValue(value: string): string {
 function hostsForKey(key: string): HTMLElement[] {
   // An exact-value selector lets the browser filter, instead of copying every
   // badge host on the page into an array once per key.
-  return [...document.querySelectorAll<HTMLElement>(
-    `[data-euc-badge-host="true"][data-euc-source-key="${quotedAttributeValue(key)}"]`
-  )].filter((host) => host.isConnected);
+  const selector = `[data-euc-badge-host="true"][data-euc-source-key="${quotedAttributeValue(key)}"]`;
+  // Badges sit beside their source: besides the document, only the shadow root
+  // holding this key's source or badge needs a look, not every known one.
+  const record = records.get(key);
+  const roots = new Set<ParentNode>([document]);
+  for (const node of [record?.sourceElement, record?.badgeHost]) {
+    const root = node?.getRootNode();
+    if (root && root.nodeType === 11) roots.add(root as ShadowRoot);
+  }
+  return [...roots].flatMap((root) => [...root.querySelectorAll<HTMLElement>(selector)])
+    .filter((host) => host.isConnected);
 }
 
 function applyIdentity(host: HTMLElement, record: BadgeHostRecord, reason: string, migrationOrigin?: string): void {
@@ -244,7 +253,7 @@ export function reconcileAffectedBadgeHosts(mutations: readonly MutationRecord[]
 
 export function reconcileAllBadgeHostRecords(): void {
   for (const key of [...records.keys()]) reconcileBadgeHostsForKey(key);
-  for (const host of document.querySelectorAll<HTMLElement>('[data-euc-badge-host="true"][data-euc-source-key]')) {
+  for (const host of querySelectorAllDeep<HTMLElement>('[data-euc-badge-host="true"][data-euc-source-key]')) {
     const key = host.dataset.eucSourceKey;
     if (key && !records.has(key)) removeCompeting(host, "DOM badge host has no registry record");
   }

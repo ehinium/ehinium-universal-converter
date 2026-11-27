@@ -1,3 +1,5 @@
+import { composedParent, containsComposed } from "./shadowRoots";
+
 export type BadgeVisibilityReason =
   | "visible"
   | "source-disconnected"
@@ -203,7 +205,7 @@ function getHiddenReason(source: HTMLElement): BadgeVisibilityReason | null {
   // element is visually hidden. Retailers commonly apply it to visible price
   // glyph layers while exposing a separate semantic copy to assistive tech.
   if (source.closest("[inert]")) return "source-hidden";
-  let current: HTMLElement | null = source;
+  let current: Element | null = source;
   let depth = 0;
   while (current && depth < MAX_STYLE_ANCESTORS) {
     const style = getComputedStyle(current);
@@ -215,28 +217,36 @@ function getHiddenReason(source: HTMLElement): BadgeVisibilityReason | null {
     ) {
       return "source-hidden";
     }
-    current = current.parentElement;
+    current = composedParent(current);
     depth++;
   }
   return null;
 }
 
 function isFullyClipped(source: HTMLElement, sourceRect: DOMRect): boolean {
-  let current = source.parentElement;
+  let current = composedParent(source);
   let depth = 0;
   let visibleRect = sourceRect;
   while (current && depth < MAX_STYLE_ANCESTORS) {
+    // The root's overflow (and the body's, which it may pass on) clips at the
+    // viewport, checked separately; their boxes can be one screen tall.
+    if (current.tagName === "BODY" || current.tagName === "HTML") break;
     const style = getComputedStyle(current);
-    if (/(?:hidden|clip)/u.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`)) {
+    // A hidden or clipped axis makes the box clip; the other axis is spared only
+    // when `visible`, which just `overflow: clip visible` allows (one axis cut).
+    const clips = /(?:hidden|clip)/u.test(`${style.overflowX} ${style.overflowY}`);
+    const clipsX = clips && style.overflowX !== "visible";
+    const clipsY = clips && style.overflowY !== "visible";
+    if (clipsX || clipsY) {
       const clip = current.getBoundingClientRect();
-      const left = Math.max(visibleRect.left, clip.left);
-      const right = Math.min(visibleRect.right, clip.right);
-      const top = Math.max(visibleRect.top, clip.top);
-      const bottom = Math.min(visibleRect.bottom, clip.bottom);
+      const left = clipsX ? Math.max(visibleRect.left, clip.left) : visibleRect.left;
+      const right = clipsX ? Math.min(visibleRect.right, clip.right) : visibleRect.right;
+      const top = clipsY ? Math.max(visibleRect.top, clip.top) : visibleRect.top;
+      const bottom = clipsY ? Math.min(visibleRect.bottom, clip.bottom) : visibleRect.bottom;
       if (right <= left || bottom <= top) return true;
       visibleRect = new DOMRect(left, top, right - left, bottom - top);
     }
-    current = current.parentElement;
+    current = composedParent(current);
     depth++;
   }
   return false;
@@ -262,7 +272,8 @@ function coveringOverlayAtPoint(
     ? document.elementsFromPoint(point.x, point.y).filter((element) => !isExtensionOwned(element))
     : [];
   for (const hit of hitStack) {
-    if (hit === source || source.contains(hit)) return { hitStack };
+    // Hit testing reports the shadow host of a price inside a shadow root.
+    if (hit === source || source.contains(hit) || (hit.shadowRoot && containsComposed(hit, source))) return { hitStack };
     const overlay = applicable.find(
       (candidate) => candidate.element === hit || candidate.element.contains(hit)
     );

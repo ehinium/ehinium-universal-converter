@@ -186,6 +186,40 @@ for (let index = 0; index < 20; index++) {
 assert.equal(document.querySelectorAll('[data-ehinium-badge="true"]').length, 1);
 assert.equal(getBadgeVisibilityDiagnostics().at(-1)?.visibilityReason, "visible");
 
+// Adidas: <body> clips only horizontally (`overflow: clip visible`) and both
+// <html> and <body> are one screen tall, so after scrolling every price sits
+// below their boxes. Those prices are on screen; their badges must show.
+reset();
+const scrolledPrice = createPrice("scrolled-price", { x: 100, y: 300, width: 70, height: 20 });
+const grid = document.createElement("div");
+grid.append(scrolledPrice.source, scrolledPrice.badge);
+document.body.append(grid);
+Object.assign(document.body.style, { overflowX: "clip", overflowY: "visible" });
+Object.assign(document.documentElement.style, { overflowX: "clip", overflowY: "scroll" });
+setRect(document.body, { x: 0, y: -1300, width: 1009, height: 768 });
+setRect(document.documentElement, { x: 0, y: -1300, width: 1009, height: 768 });
+registerBadgeVisibility(scrolledPrice.badge, scrolledPrice.source, scrolledPrice.source);
+reconcileBadgeVisibility("scroll");
+assert.equal(scrolledPrice.badge.style.visibility, "", "page-level overflow does not hide prices below the first screen");
+// A box that clips one axis does not hide what overflows it on the other...
+Object.assign(grid.style, { overflowX: "clip", overflowY: "visible" });
+setRect(grid, { x: 0, y: 0, width: 1009, height: 100 });
+reconcileBadgeVisibility("scroll");
+assert.equal(scrolledPrice.badge.style.visibility, "");
+// ...while one clipping both axes still hides a price outside it,
+grid.style.overflowY = "hidden";
+reconcileBadgeVisibility("scroll");
+assert.equal(scrolledPrice.badge.style.visibility, "hidden");
+assert.equal(getBadgeVisibilityDiagnostics().at(-1)?.visibilityReason, "source-clipped");
+// as does `overflow-x: hidden`, whose other axis computes to `auto`.
+Object.assign(grid.style, { overflowX: "hidden", overflowY: "auto" });
+reconcileBadgeVisibility("scroll");
+assert.equal(scrolledPrice.badge.style.visibility, "hidden");
+document.body.removeAttribute("style");
+document.documentElement.removeAttribute("style");
+delete (document.body as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+delete (document.documentElement as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+
 // Bounded performance fixture: 100 badges and several popovers.
 reset();
 const performanceOverlay = createFixedOverlay({ x: 700, y: 0, width: 324, height: 768 });

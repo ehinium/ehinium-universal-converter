@@ -7,6 +7,7 @@ import { consumeExtensionMove, handleBadgeLifecycleMutations, wasBadgeRemovedInt
 import { handleBadgeHostMutations } from "./badgeHost";
 import { reconcileAffectedBadgeHosts } from "./badgeHostRegistry";
 import { recordMutationBatch } from "./perfDiagnostics";
+import { getKnownShadowRoots, setShadowRootListener, shadowHostOf } from "./shadowRoots";
 
 const EUC_OWNED_SELECTOR = [
   '[data-ehinium-badge="true"]',
@@ -138,7 +139,9 @@ function restoreAllowed(target: Node): boolean {
 }
 
 function getMutationRoots(mutation: MutationRecord): Node[] {
-  if (isEucOwnedNode(mutation.target) || isInsideExcludedContent(mutation.target)) {
+  // A component rendering straight into its shadow root: the root has no parent element; its host decides.
+  const scope = shadowHostOf(mutation.target) ?? mutation.target;
+  if (isEucOwnedNode(scope) || isInsideExcludedContent(scope)) {
     return [];
   }
 
@@ -258,11 +261,15 @@ export function observeDomChanges(callback: (roots: Node[]) => void): () => void
     callback(roots);
   });
 
-  observer.observe(document, {
+  const options: MutationObserverInit = {
     characterData: true,
     childList: true,
     subtree: true,
-  });
+  };
+  observer.observe(document, options);
+  // Changes inside shadow roots do not reach an observer on the document.
+  for (const root of getKnownShadowRoots()) observer.observe(root, options);
+  setShadowRootListener((root) => observer.observe(root, options));
 
   const stop = (): void => {
     if (stopped) {
@@ -271,6 +278,7 @@ export function observeDomChanges(callback: (roots: Node[]) => void): () => void
 
     stopped = true;
     observer.disconnect();
+    setShadowRootListener(null);
 
     if (stopActiveObserver === stop) {
       stopActiveObserver = null;

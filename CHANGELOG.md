@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3 - 2026-11-27
+
+### Fixed
+
+- Prices inside web components (open shadow roots) convert, such as on Pull&Bear and Stradivarius, including prices a component renders later.
+- Badges further down the page show after scrolling on sites whose `<body>` clips only horizontally (`overflow: clip visible`) and whose page boxes are one screen tall, such as Adidas. Before, every badge below the first screen stayed hidden.
+
 ## 1.0.2 - 2026-11-23
 
 ### Added
